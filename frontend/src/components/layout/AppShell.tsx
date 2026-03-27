@@ -1,7 +1,8 @@
 import { type ReactNode } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
+  LogOut,
   Package,
   ReceiptText,
   Settings,
@@ -9,6 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { clearSession } from '../../auth/session'
 import { BackToHome } from '../BackToHome'
 import { BrandMark } from '../BrandMark'
 import { Button } from '../ui/Button'
@@ -46,8 +48,14 @@ export function AppShell({
   children: ReactNode
 }) {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const showBack = pathname !== '/home'
 
+  function handleLogout() {
+    clearSession()
+    navigate('/login', { replace: true })
+  }
+  const userEmail = localStorage.getItem('pos.user_email')
   return (
     <div className="min-h-dvh">
       <div className="mx-auto grid min-h-dvh max-w-[1400px] grid-cols-1 lg:grid-cols-[280px_1fr]">
@@ -57,7 +65,7 @@ export function AppShell({
               <BrandMark size={44} />
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold tracking-[-0.02em] text-ink/90">
-                  POS Boutique
+                  Yoah DJI POS
                 </div>
                 <div className="truncate text-xs text-ink/55">Retail control center</div>
               </div>
@@ -95,6 +103,15 @@ export function AppShell({
                   <Settings className="h-4 w-4" />
                   Settings
                 </Button>
+                <Button
+                  variant="ghost"
+                  className="mt-2 h-10 w-full justify-center"
+                  type="button"
+                  onClick={handleLogout}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Logout
+                </Button>
               </div>
             </div>
           </div>
@@ -122,8 +139,8 @@ export function AppShell({
                 <div className="hidden items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 md:flex">
                   <div className="h-8 w-8 rounded-xl border border-white/10 bg-[radial-gradient(120%_120%_at_20%_0%,rgba(255,255,255,0.10),rgba(255,255,255,0.03))]" />
                   <div className="leading-tight">
-                    <div className="text-xs font-medium text-ink/80">Owner</div>
-                    <div className="text-[11px] text-ink/50">admin@shop.ht</div>
+                    <div className="text-xs font-medium text-ink/80">User</div>
+                    <div className="text-[11px] text-ink/50">{userEmail}</div>
                   </div>
                 </div>
               </div>

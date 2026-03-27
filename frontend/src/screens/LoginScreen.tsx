@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { HelpCircle, ShieldCheck, SlidersHorizontal } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { API_ENDPOINTS } from '../config/endpoints'
 import { BackToHome } from '../components/BackToHome'
 import { BrandMark } from '../components/BrandMark'
 import { Button } from '../components/ui/Button'
@@ -12,6 +14,7 @@ function getThemeController(): { settings: ThemeSettings; setSettings: (s: Theme
 }
 
 export function LoginScreen() {
+  const navigate = useNavigate()
   const theme = getThemeController()
   const settings = theme?.settings
 
@@ -19,8 +22,49 @@ export function LoginScreen() {
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
   const [openPalette, setOpenPalette] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const presets = useMemo(() => THEME_PALETTES, [])
+
+  async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+
+    const cleanEmail = email.trim().toLowerCase()
+    if (!cleanEmail || !password) {
+      setError('Please enter both email and password.')
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const res = await fetch(API_ENDPOINTS.auth.login, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password }),
+      })
+
+    
+      const data = (await res.json()) as { access_token?: string; detail?: string }
+      if (!res.ok || !data.access_token) {
+        setError(data.detail ?? 'Login failed. Please check your credentials.')
+        return
+      }
+
+      const store = remember ? localStorage : sessionStorage
+      store.setItem('pos.access_token', data.access_token)
+      // Keep lightweight identity hints for quick UI personalization.
+      store.setItem('pos.user_email', cleanEmail)
+
+      navigate('/home', { replace: true })
+
+    } catch {
+      setError('Unable to reach the server. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <div className="relative min-h-dvh overflow-hidden">
@@ -113,10 +157,7 @@ export function LoginScreen() {
 
                 <form
                   className="mt-6 grid gap-4"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    
-                  }}
+                  onSubmit={handleLogin}
                 >
                   <div className="grid gap-2">
                     <FieldLabel htmlFor="email">Username or email</FieldLabel>
@@ -126,6 +167,7 @@ export function LoginScreen() {
                       autoComplete="username"
                       placeholder="name@shop.ht"
                       value={email}
+                      disabled={isLoading}
                       onChange={(e) => setEmail(e.target.value)}
                     />
                   </div>
@@ -138,6 +180,7 @@ export function LoginScreen() {
                       autoComplete="current-password"
                       placeholder="••••••••••••"
                       value={password}
+                      disabled={isLoading}
                       onChange={(e) => setPassword(e.target.value)}
                     />
                   </div>
@@ -148,6 +191,7 @@ export function LoginScreen() {
                         type="checkbox"
                         className="h-4 w-4 rounded border-white/15 bg-white/[0.03] accent-[var(--accent)]"
                         checked={remember}
+                        disabled={isLoading}
                         onChange={(e) => setRemember(e.target.checked)}
                       />
                       Remember me
@@ -157,9 +201,15 @@ export function LoginScreen() {
                     </a>
                   </div>
 
-                  <Button type="submit" className="mt-1 h-11">
-                    Sign in
+                  <Button type="submit" className="mt-1 h-11" disabled={isLoading}>
+                    {isLoading ? 'Signing in…' : 'Sign in'}
                   </Button>
+
+                  {error ? (
+                    <div className="rounded-xl border border-[color-mix(in_oklab,var(--highlight)_35%,transparent)] bg-[color-mix(in_oklab,var(--highlight)_10%,transparent)] px-3 py-2 text-xs text-[color-mix(in_oklab,var(--highlight)_82%,white)]">
+                      {error}
+                    </div>
+                  ) : null}
 
                   <div className="mt-1 text-xs text-ink/50">
                     Support: <span className="text-ink/65">support@posboutique.ht</span>

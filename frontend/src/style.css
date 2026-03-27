@@ -1,5 +1,10 @@
 @import 'tailwindcss';
 
+/* Native form controls (select dropdown lists) follow dark UI; avoids white option panels on Windows/Chrome */
+html {
+  color-scheme: dark;
+}
+
 :root {
   /* Dark green-tinted shell (pairs with default Printemps palette) */
   --bg-0: #0a1208;
@@ -41,5 +46,14 @@ body {
 }
 
 .text-ink {
+  color: var(--ink);
+}
+
+select {
+  color: var(--ink);
+}
+
+select option {
+  background-color: var(--bg-1);
   color: var(--ink);
 }
