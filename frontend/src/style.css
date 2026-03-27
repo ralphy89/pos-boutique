@@ -1,0 +1,45 @@
+@import 'tailwindcss';
+
+:root {
+  /* Dark green-tinted shell (pairs with default Printemps palette) */
+  --bg-0: #0a1208;
+  --bg-1: #0f1a0c;
+  --panel: rgba(255, 255, 255, 0.04);
+  --stroke: rgba(255, 255, 255, 0.10);
+  --ink: rgba(255, 251, 230, 0.92);
+
+  /* Default: Printemps — #347928, #C0EBA6, #FFFBE6, #FCCD2A */
+  --accent: #347928;
+  --accent-2: #c0eba6;
+  --surface-cream: #fffbe6;
+  --highlight: #fccd2a;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(140% 120% at 20% 0%, rgba(255, 255, 255, 0.04), transparent 60%),
+    radial-gradient(110% 120% at 0% 100%, rgba(255, 255, 255, 0.02), transparent 60%),
+    linear-gradient(180deg, var(--bg-0), var(--bg-1));
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, 'Noto Sans', sans-serif;
+  letter-spacing: -0.01em;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.bg-app {
+  background: radial-gradient(140% 120% at 20% 0%, rgba(255, 255, 255, 0.04), transparent 60%),
+    radial-gradient(110% 120% at 0% 100%, rgba(255, 255, 255, 0.02), transparent 60%),
+    linear-gradient(180deg, var(--bg-0), var(--bg-1));
+}
+
+.text-ink {
+  color: var(--ink);
+}
