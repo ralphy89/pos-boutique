@@ -10,7 +10,13 @@ export const API_ENDPOINTS = {
     list: `${ENV.API_BASE_URL}/products`,
     one: (id: number) => `${ENV.API_BASE_URL}/products/${id}`,
   },
-  // sales: { list: `${ENV.API_BASE_URL}/sales`, create: `${ENV.API_BASE_URL}/sales` },
-  // customers: { list: `${ENV.API_BASE_URL}/customers`, create: `${ENV.API_BASE_URL}/customers` },
+  customers: {
+    list: `${ENV.API_BASE_URL}/customers`,
+    one: (id: number) => `${ENV.API_BASE_URL}/customers/${id}`,
+  },
+  sales: {
+    list: `${ENV.API_BASE_URL}/sales`,
+    one: (id: number) => `${ENV.API_BASE_URL}/sales/${id}`,
+  },
 } as const
 

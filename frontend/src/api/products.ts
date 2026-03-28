@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../config/endpoints'
 import type { ProductCreatePayload, ProductResponse } from '../types/product'
-import { apiGet, apiPost } from './client'
+import { apiDelete, apiGet, apiPost, apiPut } from './client'
 
 export type ListProductsParams = {
   q?: string
@@ -29,4 +29,20 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Pro
 
 export async function createProduct(payload: ProductCreatePayload): Promise<ProductResponse> {
   return apiPost<ProductResponse>(API_ENDPOINTS.products.list, payload)
+}
+
+export async function getProduct(id: number): Promise<ProductResponse> {
+  return apiGet<ProductResponse>(API_ENDPOINTS.products.one(id))
+}
+
+/** Full field update (matches backend `ProductUpdate` with all keys set). */
+export async function updateProduct(
+  id: number,
+  payload: ProductCreatePayload,
+): Promise<ProductResponse> {
+  return apiPut<ProductResponse>(API_ENDPOINTS.products.one(id), payload)
+}
+
+export async function deleteProduct(id: number): Promise<void> {
+  return apiDelete(API_ENDPOINTS.products.one(id))
 }

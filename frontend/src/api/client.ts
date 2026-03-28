@@ -90,3 +90,55 @@ export async function apiPost<T>(url: string, body: unknown, init?: RequestInit)
 
   return res.json() as Promise<T>
 }
+
+export async function apiPut<T>(url: string, body: unknown, init?: RequestInit): Promise<T> {
+  const tokenHeaders = requireAuthHeaders()
+  const res = await fetch(url, {
+    ...init,
+    method: 'PUT',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...init?.headers,
+      ...tokenHeaders,
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (res.status === 401 || res.status === 403) {
+    clearSession()
+    window.location.assign('/login')
+    throw new ApiError('Session expired', res.status)
+  }
+
+  if (!res.ok) {
+    const message = await parseApiErrorMessage(res)
+    throw new ApiError(message, res.status)
+  }
+
+  return res.json() as Promise<T>
+}
+
+export async function apiDelete(url: string, init?: RequestInit): Promise<void> {
+  const tokenHeaders = requireAuthHeaders()
+  const res = await fetch(url, {
+    ...init,
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      ...init?.headers,
+      ...tokenHeaders,
+    },
+  })
+
+  if (res.status === 401 || res.status === 403) {
+    clearSession()
+    window.location.assign('/login')
+    throw new ApiError('Session expired', res.status)
+  }
+
+  if (!res.ok) {
+    const message = await parseApiErrorMessage(res)
+    throw new ApiError(message, res.status)
+  }
+}

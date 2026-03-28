@@ -1,12 +1,14 @@
 import { type ReactNode } from 'react'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
+  ArrowUpLeft,
   LayoutDashboard,
   LogOut,
   Package,
   ReceiptText,
   Settings,
   Users,
+  Wallet,
   type LucideIcon,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -26,9 +28,9 @@ const NAV: NavItem[] = [
   { to: '/sales/new', label: 'New sale', icon: <ReceiptText className="h-4 w-4" /> },
   { to: '/products', label: 'Products', icon: <Package className="h-4 w-4" /> },
   { to: '/customers', label: 'Customers', icon: <Users className="h-4 w-4" /> },
+  { to: '/cash-register', label: 'Cash register', icon: <Wallet className="h-4 w-4" strokeWidth={1.75} /> },
   // { to: '/inventory', label: 'Inventory', icon: <Boxes className="h-4 w-4" /> },
   // { to: '/credit', label: 'Credit', icon: <CreditCard className="h-4 w-4" /> },
-  // { to: '/cash', label: 'Cash register', icon: <Wallet className="h-4 w-4" /> },
   // { to: '/reports', label: 'Reports', icon: <BarChart3 className="h-4 w-4" /> },
 ]
 
@@ -38,6 +40,8 @@ export function AppShell({
   quickActionLabel = 'New sale',
   quickActionIcon: QuickIcon = ReceiptText,
   onQuickAction,
+  quickActionDisabled,
+  backOverride,
   children,
 }: {
   title: string
@@ -45,6 +49,9 @@ export function AppShell({
   quickActionLabel?: string
   quickActionIcon?: LucideIcon
   onQuickAction?: () => void
+  quickActionDisabled?: boolean
+  /** When set, the sticky header back control navigates here instead of home. */
+  backOverride?: { to: string; ariaLabel?: string; title?: string }
   children: ReactNode
 }) {
   const { pathname } = useLocation()
@@ -121,7 +128,20 @@ export function AppShell({
           <header className="sticky top-0 z-10 border-b border-white/10 bg-[color-mix(in_oklab,var(--bg-1)_82%,transparent)] backdrop-blur-xl">
             <div className="mx-auto flex max-w-[1120px] items-center justify-between gap-4 px-6 py-5">
               <div className="flex min-w-0 items-start gap-3">
-                {showBack ? <BackToHome className="mt-0.5" /> : null}
+                {showBack ? (
+                  backOverride ? (
+                    <Link
+                      to={backOverride.to}
+                      className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-ink/80 transition hover:border-white/15 hover:bg-white/[0.06] hover:text-ink"
+                      aria-label={backOverride.ariaLabel ?? 'Back'}
+                      title={backOverride.title ?? backOverride.ariaLabel ?? 'Back'}
+                    >
+                      <ArrowUpLeft className="h-4 w-4" strokeWidth={1.75} />
+                    </Link>
+                  ) : (
+                    <BackToHome className="mt-0.5" />
+                  )
+                ) : null}
                 <div className="min-w-0">
                   <div className="truncate text-lg font-semibold tracking-[-0.03em] text-ink/92">
                     {title}
@@ -131,7 +151,7 @@ export function AppShell({
               </div>
 
               <div className="flex items-center gap-2">
-                <Button type="button" onClick={onQuickAction}>
+                <Button type="button" onClick={onQuickAction} disabled={quickActionDisabled}>
                   <QuickIcon className="h-4 w-4" />
                   {quickActionLabel}
                 </Button>

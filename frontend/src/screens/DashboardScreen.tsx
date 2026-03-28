@@ -7,15 +7,20 @@ import {
   ReceiptText,
   Sparkles,
   Users,
+  Wallet,
 } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 import { AppShell } from '../components/layout/AppShell'
 
 export function DashboardScreen() {
+  const navigate = useNavigate()
+
   return (
     <AppShell
       title="Dashboard"
       subtitle="Executive control of sales and stock — at a glance."
       quickActionLabel="New sale"
+      onQuickAction={() => navigate('/sales/new')}
     >
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.25fr_0.75fr]">
         <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-[0_44px_140px_-100px_rgba(0,0,0,0.95)]">
@@ -66,9 +71,30 @@ export function DashboardScreen() {
         <section className="grid gap-4">
           <Card title="Quick actions" subtitle="Move fast, stay precise">
             <div className="grid grid-cols-2 gap-2">
-              <QuickAction icon={<Barcode className="h-4 w-4" />} label="Scan & sell" hint="New sale flow" />
-              <QuickAction icon={<Boxes className="h-4 w-4" />} label="Products" hint="Catalog management" />
-              <QuickAction icon={<Users className="h-4 w-4" />} label="Customers" hint="Profiles & history" />
+              <QuickAction
+                to="/sales/new"
+                icon={<Barcode className="h-4 w-4" />}
+                label="Scan & sell"
+                hint="New sale flow"
+              />
+              <QuickAction
+                to="/products"
+                icon={<Boxes className="h-4 w-4" />}
+                label="Products"
+                hint="Catalog management"
+              />
+              <QuickAction
+                to="/customers"
+                icon={<Users className="h-4 w-4" />}
+                label="Customers"
+                hint="Profiles & history"
+              />
+              <QuickAction
+                to="/cash-register"
+                icon={<Wallet className="h-4 w-4" strokeWidth={1.75} />}
+                label="Cash register"
+                hint="Session & reconciliation"
+              />
               {/* Reports module will be implemented later */}
               {/* <QuickAction icon={<TrendingUp className="h-4 w-4" />} label="Reports" hint="Insights" /> */}
             </div>
@@ -142,10 +168,10 @@ function Kpi({
   )
 }
 
-function QuickAction({ label, hint, icon }: { label: string; hint: string; icon: React.ReactNode }) {
+function QuickAction({ label, hint, icon, to }: { label: string; hint: string; icon: React.ReactNode; to: string }) {
   return (
-    <button
-      type="button"
+    <Link
+      to={to}
       className="group flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-left transition hover:bg-white/[0.04]"
     >
       <div className="flex items-center gap-3">
@@ -158,7 +184,7 @@ function QuickAction({ label, hint, icon }: { label: string; hint: string; icon:
         </div>
       </div>
       <ArrowUpRight className="h-4 w-4 text-ink/40 transition group-hover:text-ink/70" />
-    </button>
+    </Link>
   )
 }
 

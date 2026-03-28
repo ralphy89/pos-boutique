@@ -12,7 +12,12 @@ import {
   Eye,
   Trash2,
 } from 'lucide-react'
-import { createProduct, listProducts } from '../api/products'
+import {
+  createProduct,
+  deleteProduct as removeProduct,
+  listProducts,
+  updateProduct,
+} from '../api/products'
 import { AppShell } from '../components/layout/AppShell'
 import { Button } from '../components/ui/Button'
 import { FieldLabel, TextField } from '../components/ui/Field'
@@ -27,7 +32,9 @@ export function ProductsScreen() {
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [category, setCategory] = useState<'All' | string>('All')
   const [onlyLowStock, setOnlyLowStock] = useState(false)
-  const [openCreate, setOpenCreate] = useState(false)
+  const [editor, setEditor] = useState<null | { mode: 'create' } | { mode: 'edit'; product: ProductResponse }>(null)
+  const [viewProduct, setViewProduct] = useState<ProductResponse | null>(null)
+  const [productToDelete, setProductToDelete] = useState<ProductResponse | null>(null)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
 
   const [products, setProducts] = useState<ProductResponse[]>([])
@@ -112,7 +119,7 @@ export function ProductsScreen() {
       subtitle="Manage catalog, pricing and stock with precision."
       quickActionLabel="Add product"
       quickActionIcon={PackagePlus}
-      onQuickAction={() => setOpenCreate(true)}
+      onQuickAction={() => setEditor({ mode: 'create' })}
     >
       <div className="grid gap-4">
         <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-5">
@@ -130,7 +137,7 @@ export function ProductsScreen() {
                   <SlidersHorizontal className="h-4 w-4" />
                   Advanced
                 </Button> */}
-                <Button type="button" onClick={() => setOpenCreate(true)}>
+                <Button type="button" onClick={() => setEditor({ mode: 'create' })}>
                   <PackagePlus className="h-4 w-4" />
                   Add product
                 </Button>
@@ -254,7 +261,7 @@ export function ProductsScreen() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <div className="truncate text-sm font-medium tracking-[-0.02em] text-ink/90">
-                            {p.name}
+                            {`00${1000 + p.id}`} - {p.name}
                           </div>
                           {low ? (
                             <span className="inline-flex items-center gap-1 rounded-full border border-[color-mix(in_oklab,var(--highlight)_35%,transparent)] bg-[color-mix(in_oklab,var(--highlight)_12%,transparent)] px-2 py-0.5 text-[11px] text-[color-mix(in_oklab,var(--highlight)_80%,white)]">
@@ -263,7 +270,6 @@ export function ProductsScreen() {
                             </span>
                           ) : null}
                         </div>
-                        <div className="mt-1 text-xs text-ink/50">ID: {p.id}</div>
                       </div>
 
                       <div className="flex items-center gap-2 text-xs text-ink/70 lg:text-sm lg:text-ink/75">
@@ -308,19 +314,28 @@ export function ProductsScreen() {
                               <MenuItem
                                 icon={<Eye className="h-4 w-4" />}
                                 label="View"
-                                onClick={() => setOpenMenuId(null)}
+                                onClick={() => {
+                                  setOpenMenuId(null)
+                                  setViewProduct(p)
+                                }}
                               />
                               <MenuItem
                                 icon={<Pencil className="h-4 w-4" />}
                                 label="Edit"
-                                onClick={() => setOpenMenuId(null)}
+                                onClick={() => {
+                                  setOpenMenuId(null)
+                                  setEditor({ mode: 'edit', product: p })
+                                }}
                               />
                               <div className="h-px bg-white/10" />
                               <MenuItem
                                 danger
                                 icon={<Trash2 className="h-4 w-4" />}
                                 label="Delete"
-                                onClick={() => setOpenMenuId(null)}
+                                onClick={() => {
+                                  setOpenMenuId(null)
+                                  setProductToDelete(p)
+                                }}
                               />
                             </div>
                           ) : null}
@@ -335,10 +350,31 @@ export function ProductsScreen() {
         </section>
       </div>
 
-      <CreateProductPanel
-        open={openCreate}
-        onClose={() => setOpenCreate(false)}
-        onCreated={() => setCatalogVersion((v) => v + 1)}
+      <ProductEditorPanel
+        state={editor}
+        onClose={() => setEditor(null)}
+        onSuccess={() => {
+          setCatalogVersion((v) => v + 1)
+          setEditor(null)
+        }}
+      />
+      <ProductViewPanel
+        product={viewProduct}
+        onClose={() => setViewProduct(null)}
+        onEdit={(p) => {
+          setViewProduct(null)
+          setEditor({ mode: 'edit', product: p })
+        }}
+      />
+      <DeleteProductDialog
+        product={productToDelete}
+        onClose={() => setProductToDelete(null)}
+        onDeleted={(id) => {
+          setCatalogVersion((v) => v + 1)
+          setProductToDelete(null)
+          setViewProduct((v) => (v?.id === id ? null : v))
+          setEditor((e) => (e?.mode === 'edit' && e.product.id === id ? null : e))
+        }}
       />
     </AppShell>
   )
@@ -375,15 +411,20 @@ function MenuItem({
   )
 }
 
-function CreateProductPanel({
-  open,
+type ProductEditorState = null | { mode: 'create' } | { mode: 'edit'; product: ProductResponse }
+
+function ProductEditorPanel({
+  state,
   onClose,
-  onCreated,
+  onSuccess,
 }: {
-  open: boolean
+  state: ProductEditorState
   onClose: () => void
-  onCreated: () => void
+  onSuccess: () => void
 }) {
+  const open = state !== null
+  const isEdit = state?.mode === 'edit'
+
   const [name, setName] = useState('')
   const [category, setCategory] = useState('')
   const [purchasePrice, setPurchasePrice] = useState('')
@@ -395,19 +436,31 @@ function CreateProductPanel({
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!open) return
-    setName('')
-    setCategory('')
-    setPurchasePrice('')
-    setSalePrice('')
-    setStock('0')
-    setMinStock('0')
-    setStatus('active')
+    if (!state) return
+    if (state.mode === 'create') {
+      setName('')
+      setCategory('')
+      setPurchasePrice('')
+      setSalePrice('')
+      setStock('0')
+      setMinStock('0')
+      setStatus('active')
+    } else {
+      const ep = state.product
+      setName(ep.name)
+      setCategory(ep.category ?? '')
+      setPurchasePrice(moneyToInputString(moneyFromApi(ep.purchase_price)))
+      setSalePrice(moneyToInputString(moneyFromApi(ep.sale_price)))
+      setStock(String(ep.stock))
+      setMinStock(String(ep.min_stock))
+      setStatus(ep.status)
+    }
     setSubmitError(null)
-  }, [open])
+  }, [state])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    if (!state) return
     setSubmitError(null)
 
     const trimmedName = name.trim()
@@ -438,21 +491,28 @@ function CreateProductPanel({
       return
     }
 
+    const payload = {
+      name: trimmedName,
+      category: category.trim() ? category.trim() : null,
+      purchase_price: pp.value,
+      sale_price: sp.value,
+      stock: st.value,
+      min_stock: mn.value,
+      status,
+    }
+
     setSubmitting(true)
     try {
-      await createProduct({
-        name: trimmedName,
-        category: category.trim() ? category.trim() : null,
-        purchase_price: pp.value,
-        sale_price: sp.value,
-        stock: st.value,
-        min_stock: mn.value,
-        status,
-      })
-      onCreated()
-      onClose()
+      if (state.mode === 'create') {
+        await createProduct(payload)
+      } else {
+        await updateProduct(state.product.id, payload)
+      }
+      onSuccess()
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Could not create product.')
+      setSubmitError(
+        err instanceof Error ? err.message : isEdit ? 'Could not update product.' : 'Could not create product.',
+      )
     } finally {
       setSubmitting(false)
     }
@@ -478,8 +538,12 @@ function CreateProductPanel({
       >
         <form className="flex h-full flex-col" onSubmit={handleSubmit}>
           <div className="border-b border-white/10 px-6 py-5">
-            <div className="text-sm font-semibold tracking-[-0.02em] text-ink/90">Create product</div>
-            <div className="mt-1 text-xs text-ink/55">Add an item to your catalog. Prices in HTG.</div>
+            <div className="text-sm font-semibold tracking-[-0.02em] text-ink/90">
+              {isEdit ? 'Edit product' : 'Create product'}
+            </div>
+            <div className="mt-1 text-xs text-ink/55">
+              {isEdit ? 'Update catalog details. Prices in HTG.' : 'Add an item to your catalog. Prices in HTG.'}
+            </div>
           </div>
 
           <div className="flex-1 overflow-auto px-6 py-5">
@@ -602,12 +666,14 @@ function CreateProductPanel({
               <Button variant="ghost" type="button" onClick={onClose} disabled={submitting}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting}>
+              <Button type="submit" disabled={submitting || !state}>
                 {submitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Creating…
+                    {isEdit ? 'Saving…' : 'Creating…'}
                   </>
+                ) : isEdit ? (
+                  'Save changes'
                 ) : (
                   'Create'
                 )}
@@ -618,6 +684,176 @@ function CreateProductPanel({
       </div>
     </div>
   )
+}
+
+function ProductViewPanel({
+  product,
+  onClose,
+  onEdit,
+}: {
+  product: ProductResponse | null
+  onClose: () => void
+  onEdit: (p: ProductResponse) => void
+}) {
+  const open = product !== null
+
+  return (
+    <div
+      className={[
+        'fixed inset-0 z-40 transition',
+        open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
+      ].join(' ')}
+      aria-hidden={!open}
+    >
+      <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className={[
+          'absolute right-0 top-0 h-dvh w-full max-w-[520px] border-l border-white/10 bg-[color-mix(in_oklab,var(--bg-1)_85%,black)] shadow-[0_60px_140px_-80px_rgba(0,0,0,0.95)] transition-transform',
+          open ? 'translate-x-0' : 'translate-x-full',
+        ].join(' ')}
+      >
+        {product ? (
+          <div className="flex h-full flex-col">
+            <div className="border-b border-white/10 px-6 py-5">
+              <div className="text-sm font-semibold tracking-[-0.02em] text-ink/90">Product details</div>
+              <div className="mt-1 text-xs text-ink/55">ID {product.id}</div>
+            </div>
+            <div className="flex-1 overflow-auto px-6 py-5">
+              <div className="grid gap-4">
+                <ViewRow label="Name" value={product.name} />
+                <ViewRow label="Category" value={product.category ?? '—'} />
+                <ViewRow label="Purchase price" value={formatMoney(moneyFromApi(product.purchase_price))} />
+                <ViewRow label="Sale price" value={formatMoney(moneyFromApi(product.sale_price))} />
+                <ViewRow label="Stock" value={String(product.stock)} />
+                <ViewRow label="Minimum stock" value={String(product.min_stock)} />
+                <ViewRow
+                  label="Status"
+                  value={product.status === 'active' ? 'Active' : 'Inactive'}
+                />
+                <ViewRow label="Created" value={formatDateTime(product.created_at)} />
+                <ViewRow label="Updated" value={formatDateTime(product.updated_at)} />
+              </div>
+            </div>
+            <div className="border-t border-white/10 px-6 py-5">
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="ghost" type="button" onClick={onClose}>
+                  Close
+                </Button>
+                <Button type="button" onClick={() => onEdit(product)}>
+                  <Pencil className="h-4 w-4" />
+                  Edit
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function ViewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
+      <div className="text-[11px] font-medium text-ink/50">{label}</div>
+      <div className="mt-1 text-sm text-ink/90">{value}</div>
+    </div>
+  )
+}
+
+function formatDateTime(iso: string) {
+  try {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  } catch {
+    return iso
+  }
+}
+
+function DeleteProductDialog({
+  product,
+  onClose,
+  onDeleted,
+}: {
+  product: ProductResponse | null
+  onClose: () => void
+  onDeleted: (id: number) => void
+}) {
+  const open = product !== null
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (product) setErr(null)
+  }, [product])
+
+  async function handleConfirm() {
+    if (!product) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await removeProduct(product.id)
+      onDeleted(product.id)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not delete product.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className={[
+        'fixed inset-0 z-[45] transition',
+        open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
+      ].join(' ')}
+      aria-hidden={!open}
+      role="presentation"
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !busy && onClose()} />
+      <div className="absolute left-1/2 top-1/2 w-[min(100%-2rem,400px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 bg-[color-mix(in_oklab,var(--bg-1)_92%,black)] p-6 shadow-[0_40px_100px_-40px_rgba(0,0,0,0.95)]">
+        {product ? (
+          <>
+            <div className="text-sm font-semibold tracking-[-0.02em] text-ink/90">Delete product?</div>
+            <p className="mt-2 text-sm text-ink/60">
+              <span className="font-medium text-ink/85">{product.name}</span> will be removed from the catalog. This
+              cannot be undone.
+            </p>
+            {err ? (
+              <div className="mt-3 rounded-xl border border-white/10 bg-[color-mix(in_oklab,var(--highlight)_8%,transparent)] px-3 py-2 text-xs text-[color-mix(in_oklab,var(--highlight)_78%,white)]">
+                {err}
+              </div>
+            ) : null}
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="ghost" type="button" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleConfirm}
+                disabled={busy}
+                className="border-[color-mix(in_oklab,var(--highlight)_40%,transparent)] text-[color-mix(in_oklab,var(--highlight)_82%,white)] hover:bg-[color-mix(in_oklab,var(--highlight)_12%,transparent)]"
+              >
+                {busy ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Deleting…
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </Button>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function moneyToInputString(n: number): string {
+  const r = Math.round(n * 100) / 100
+  return Number.isInteger(r) ? String(r) : r.toFixed(2).replace(/\.?0+$/, '')
 }
 
 function parseMoneyInput(raw: string): { ok: true; value: number } | { ok: false } {

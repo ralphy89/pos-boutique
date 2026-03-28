@@ -5,6 +5,8 @@ import { LoginScreen } from './screens/LoginScreen'
 import { DashboardScreen } from './screens/DashboardScreen'
 import { ProductsScreen } from './screens/ProductsScreen'
 import { NewSaleScreen } from './screens/NewSaleScreen'
+import { CustomersScreen } from './screens/CustomersScreen'
+import { CashRegisterScreen } from './screens/CashRegisterScreen'
 
 export default function App() {
   return (
@@ -35,10 +37,26 @@ export default function App() {
           }
         />
         <Route
+          path="/customers/*"
+          element={
+            <AuthGate mode="protected">
+              <CustomersScreen />
+            </AuthGate>
+          }
+        />
+        <Route
           path="/sales/new"
           element={
             <AuthGate mode="protected">
               <NewSaleScreen />
+            </AuthGate>
+          }
+        />
+        <Route
+          path="/cash-register"
+          element={
+            <AuthGate mode="protected">
+              <CashRegisterScreen />
             </AuthGate>
           }
         />
