@@ -6,7 +6,7 @@
 2. Set the backend URL (no trailing slash):
 
 ```bash
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE_URL=http://localhost:8090
 ```
 
 For production builds, set the same variables in your CI or shell before `npm run build` so the client points at the real API. See `docs/DEPLOYMENT.md`.

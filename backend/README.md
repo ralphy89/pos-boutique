@@ -36,7 +36,7 @@ The API uses SQLite via `DATABASE_URL`. The application code can stay on the PC 
 Run:
 
 ```bash
-uvicorn src.server:app --reload --port 8000
+uvicorn src.server:app --reload --port 8090
 ```
 
 On first database creation, a default **admin** user is inserted if that email is not already present:

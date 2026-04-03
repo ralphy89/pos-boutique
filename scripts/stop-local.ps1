@@ -4,14 +4,14 @@
   Stops POS Boutique processes started with start-local.ps1 -Background.
 
 .PARAMETER ApiPort
-  Default 8000; used if PID files are missing.
+  Default 8090; used if PID files are missing.
 
 .PARAMETER UiPort
-  Default 5173; used if PID files are missing.
+  Default 8089; used if PID files are missing.
 #>
 param(
-  [int]$ApiPort = 8000,
-  [int]$UiPort = 5173
+  [int]$ApiPort = 8090,
+  [int]$UiPort = 8089
 )
 
 $ErrorActionPreference = 'SilentlyContinue'

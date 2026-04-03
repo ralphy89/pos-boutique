@@ -30,7 +30,7 @@ Copy `backend/.env.example` to `backend/.env` and set at least:
 
 The API reads `CORS_ORIGINS` from `.env`. The browser only sends `Origin` for your real site and preflight requests; if the SPA is served from `https://pos.example.com`, that origin must appear in `CORS_ORIGINS`.
 
-Local dev default remains `http://localhost:5173`.
+Local dev default UI origin is `http://localhost:8089` (API `http://localhost:8090`).
 
 ### 2.3 Run the API
 
@@ -40,7 +40,7 @@ Install dependencies in a virtual environment, then use a production ASGI server
 cd backend
 . .venv/bin/activate   # or Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn src.server:app --host 0.0.0.0 --port 8000
+uvicorn src.server:app --host 0.0.0.0 --port 8090
 ```
 
 For multiple workers with SQLite, prefer **one** worker or migrate to PostgreSQL. SQLite and concurrent writes do not scale like a client/server database.

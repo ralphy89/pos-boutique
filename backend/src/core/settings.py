@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     jwt_alg: str = "HS256"
     access_token_expires_minutes: int = 60
 
-    # Comma-separated browser origins allowed for CORS (e.g. https://pos.example.com,http://localhost:5173)
-    cors_origins: str = "http://localhost:5173"
+    # Comma-separated browser origins allowed for CORS (e.g. https://pos.example.com,http://localhost:8089)
+    cors_origins: str = "http://localhost:8089"
 
 
 settings = Settings()

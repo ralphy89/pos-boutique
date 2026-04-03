@@ -13,10 +13,10 @@
   Do not try winget to install Python or Node; fail if they are missing.
 
 .PARAMETER ApiPort
-  Port for the FastAPI server (default 8000).
+  Port for the FastAPI server (default 8090).
 
 .PARAMETER UiPort
-  Port for the Vite dev server (default 5173).
+  Port for the Vite dev server (default 8089).
 
 .PARAMETER Background
   Run API and UI without console windows. Logs: logs/api.*.log and logs/ui.*.log ; PIDs: logs/api.pid, logs/ui.pid.
@@ -39,9 +39,9 @@ param(
   [switch]$SkipRuntimeInstall,
   [switch]$Background,
   [ValidateRange(1, 65535)]
-  [int]$ApiPort = 8000,
+  [int]$ApiPort = 8090,
   [ValidateRange(1, 65535)]
-  [int]$UiPort = 5173
+  [int]$UiPort = 8089
 )
 
 $ErrorActionPreference = 'Stop'
@@ -348,7 +348,7 @@ Write-Host ('UI: open http://localhost:$UiPort (API base: ' + `$env:VITE_API_BAS
 & '$npmLaunch' run dev$viteTail
 "@
 
-if ($ApiPort -ne 8000 -or $UiPort -ne 5173) {
+if ($ApiPort -ne 8090 -or $UiPort -ne 8089) {
   Write-Host "Custom ports: ensure backend/.env CORS_ORIGINS includes http://localhost:$UiPort (and your LAN URL if using -Lan)." -ForegroundColor Yellow
 }
 
@@ -384,9 +384,10 @@ if ($Background) {
 
   Start-Sleep -Milliseconds 500
 
-  $pUi = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $uiRunner
-  ) -WorkingDirectory $Frontend -WindowStyle Hidden -PassThru `
+  # One argument string: array form breaks -File when $uiRunner contains spaces (e.g. "Ralph DUMERA Ressources").
+  $uiPsArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$uiRunner`""
+  $pUi = Start-Process -FilePath 'powershell.exe' -ArgumentList $uiPsArgs `
+    -WorkingDirectory $Frontend -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput $uiOut -RedirectStandardError $uiErr
   $pUi.Id | Set-Content -LiteralPath (Join-Path $LogDir 'ui.pid') -Encoding ASCII
 
