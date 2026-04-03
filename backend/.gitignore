@@ -1,0 +1,29 @@
+# Local environment (copy from .env.example)
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# SQLite (use DATABASE_URL in .env; never commit live data)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Packaging
+*.egg-info/
+.eggs/
+dist/
+build/

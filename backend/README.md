@@ -11,11 +11,13 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Create your env file:
+Create your env file (never commit `.env`):
 
 ```bash
 copy .env.example .env
 ```
+
+Set a strong `JWT_SECRET` in production. Configure `CORS_ORIGINS` as a comma-separated list of frontend origins (see `docs/DEPLOYMENT.md`).
 
 ### Database on an external drive or network share
 

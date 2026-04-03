@@ -21,15 +21,17 @@ from src.routers.customers import router as customers_router
 from src.routers.products import router as products_router
 from src.routers.sales import router as sales_router
 
-origins = [
-   "http://localhost:5173",
-]
+
+def _parse_cors_origins(raw: str) -> list[str]:
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name)
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins,
+        allow_origins=_parse_cors_origins(settings.cors_origins),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

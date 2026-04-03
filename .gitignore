@@ -1,0 +1,63 @@
+# --- Secrets & local config (never commit) ---
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+secrets/
+credentials/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+pip-log.txt
+
+# --- Node / frontend ---
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+dist-ssr/
+*.local
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# --- Databases & runtime data ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Logs & OS ---
+logs/
+*.log
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Editors ---
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Large / local documents (keep specs & contracts out of git) ---
+*.pdf

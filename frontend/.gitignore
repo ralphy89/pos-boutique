@@ -11,9 +11,17 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# Secrets — never commit (use .env.example as template)
 .env
 .env.*
 !.env.example
+!.env.production.example
+
+# Test / tooling
+coverage
+.nyc_output
+*.tsbuildinfo
 
 # Editor directories and files
 .vscode/*

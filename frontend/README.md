@@ -2,12 +2,14 @@
 
 ### Environment setup
 
-1. Copy `.env.example` to `.env` (already created for local dev).
-2. Set the backend URL:
+1. Copy `.env.example` to `.env` for local development (do not commit `.env`).
+2. Set the backend URL (no trailing slash):
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8000
 ```
+
+For production builds, set the same variables in your CI or shell before `npm run build` so the client points at the real API. See `docs/DEPLOYMENT.md`.
 
 ### Config organization
 
