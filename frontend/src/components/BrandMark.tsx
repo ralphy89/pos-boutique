@@ -1,4 +1,20 @@
+import { useWorkspaceBrandingOptional } from '../branding/BrandingContext'
+
 export function BrandMark({ size = 40 }: { size?: number }) {
+  const brandingCtx = useWorkspaceBrandingOptional()
+  const logo = brandingCtx?.branding.logoDataUrl
+
+  if (logo) {
+    return (
+      <div
+        className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-[0_24px_80px_-32px_rgba(0,0,0,0.9)]"
+        style={{ width: size, height: size }}
+      >
+        <img src={logo} alt="" className="h-full w-full object-contain p-1" />
+      </div>
+    )
+  }
+
   return (
     <div
       className="relative grid place-items-center rounded-2xl border border-white/10 bg-white/[0.04] shadow-[0_24px_80px_-32px_rgba(0,0,0,0.9)]"
@@ -11,4 +27,3 @@ export function BrandMark({ size = 40 }: { size?: number }) {
     </div>
   )
 }
-

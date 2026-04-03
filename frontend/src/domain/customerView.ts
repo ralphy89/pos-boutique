@@ -36,7 +36,15 @@ export function toCustomerRecord(row: CustomerResponse | CustomerDetailResponse)
   }
 
   if (!('recent_purchases' in row)) {
-    return base
+    const listRow = row as CustomerResponse
+    return {
+      ...base,
+      ledgerStats: {
+        totalPurchase: 0,
+        amountPaid: 0,
+        currentDebt: moneyFromApi(listRow.debt_balance ?? 0),
+      },
+    }
   }
 
   const detail = row as CustomerDetailResponse

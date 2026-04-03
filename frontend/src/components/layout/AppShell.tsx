@@ -2,6 +2,7 @@ import { type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   ArrowUpLeft,
+  CreditCard,
   LayoutDashboard,
   LogOut,
   Package,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { clearSession } from '../../auth/session'
+import { useWorkspaceBranding } from '../../branding/BrandingContext'
 import { BackToHome } from '../BackToHome'
 import { BrandMark } from '../BrandMark'
 import { Button } from '../ui/Button'
@@ -29,8 +31,9 @@ const NAV: NavItem[] = [
   { to: '/products', label: 'Products', icon: <Package className="h-4 w-4" /> },
   { to: '/customers', label: 'Customers', icon: <Users className="h-4 w-4" /> },
   { to: '/cash-register', label: 'Cash register', icon: <Wallet className="h-4 w-4" strokeWidth={1.75} /> },
+  { to: '/credits', label: 'Credits', icon: <CreditCard className="h-4 w-4" strokeWidth={1.75} /> },
+  { to: '/settings', label: 'Settings', icon: <Settings className="h-4 w-4" strokeWidth={1.75} /> },
   // { to: '/inventory', label: 'Inventory', icon: <Boxes className="h-4 w-4" /> },
-  // { to: '/credit', label: 'Credit', icon: <CreditCard className="h-4 w-4" /> },
   // { to: '/reports', label: 'Reports', icon: <BarChart3 className="h-4 w-4" /> },
 ]
 
@@ -63,6 +66,8 @@ export function AppShell({
     navigate('/login', { replace: true })
   }
   const userEmail = localStorage.getItem('pos.user_email')
+  const { branding } = useWorkspaceBranding()
+
   return (
     <div className="min-h-dvh">
       <div className="mx-auto grid min-h-dvh max-w-[1400px] grid-cols-1 lg:grid-cols-[280px_1fr]">
@@ -72,7 +77,7 @@ export function AppShell({
               <BrandMark size={44} />
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold tracking-[-0.02em] text-ink/90">
-                  Yoah DJI POS
+                  {branding.posName}
                 </div>
                 <div className="truncate text-xs text-ink/55">Retail control center</div>
               </div>
@@ -106,10 +111,13 @@ export function AppShell({
                 <div className="mt-1 text-xs text-ink/55">
                   Deployable in cloud or local network. Built for daily operations.
                 </div>
-                <Button variant="ghost" className="mt-3 h-10 w-full justify-center" type="button">
-                  <Settings className="h-4 w-4" />
+                <Link
+                  to="/settings"
+                  className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-medium tracking-[-0.01em] text-ink/80 transition hover:bg-white/[0.05]"
+                >
+                  <Settings className="h-4 w-4" strokeWidth={1.75} />
                   Settings
-                </Button>
+                </Link>
                 <Button
                   variant="ghost"
                   className="mt-2 h-10 w-full justify-center"
@@ -151,6 +159,14 @@ export function AppShell({
               </div>
 
               <div className="flex items-center gap-2">
+                <Link
+                  to="/settings"
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-ink/75 transition hover:border-white/15 hover:bg-white/[0.06] hover:text-ink lg:hidden"
+                  aria-label="Settings"
+                  title="Settings"
+                >
+                  <Settings className="h-4 w-4" strokeWidth={1.75} />
+                </Link>
                 <Button type="button" onClick={onQuickAction} disabled={quickActionDisabled}>
                   <QuickIcon className="h-4 w-4" />
                   {quickActionLabel}

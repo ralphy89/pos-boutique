@@ -7,6 +7,8 @@ import { ProductsScreen } from './screens/ProductsScreen'
 import { NewSaleScreen } from './screens/NewSaleScreen'
 import { CustomersScreen } from './screens/CustomersScreen'
 import { CashRegisterScreen } from './screens/CashRegisterScreen'
+import { CreditsScreen } from './screens/credits/CreditsScreen'
+import { SettingsScreen } from './screens/SettingsScreen'
 
 export default function App() {
   return (
@@ -57,6 +59,22 @@ export default function App() {
           element={
             <AuthGate mode="protected">
               <CashRegisterScreen />
+            </AuthGate>
+          }
+        />
+        <Route
+          path="/credits/*"
+          element={
+            <AuthGate mode="protected">
+              <CreditsScreen />
+            </AuthGate>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <AuthGate mode="protected">
+              <SettingsScreen />
             </AuthGate>
           }
         />

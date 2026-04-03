@@ -18,6 +18,19 @@ import {
   X,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import {
+  closeCashRegisterSession,
+  createSessionExpense,
+  getCurrentCashRegisterSession,
+  getSessionPaymentBreakdown,
+  listSessionExpenses,
+  openCashRegisterSession,
+  summaryOpeningBalance,
+  summaryTotalExpenses,
+  summaryTotalSales,
+  type RegisterExpenseRow,
+} from '../api/cashRegister'
+import { ApiError } from '../api/client'
 import { AppShell } from '../components/layout/AppShell'
 import { Button } from '../components/ui/Button'
 import { FieldLabel, TextField } from '../components/ui/Field'
@@ -29,13 +42,6 @@ type PaymentBreakdown = {
   moncash: number
   transfer: number
   credit: number
-}
-
-type RegisterExpense = {
-  id: string
-  amount: number
-  note: string
-  at: string
 }
 
 type LastCloseSnapshot = {
@@ -52,13 +58,19 @@ type LastCloseSnapshot = {
 
 type PersistedState = {
   isOpen: boolean
+  /** Backend session id when tied to API */
+  sessionId: number | null
   openedAt: string | null
   openedBy: string | null
   openingBalance: number
   openingNote: string
-  expenses: RegisterExpense[]
-  /** Stub until backend: sales-by-method for this session */
+  expenses: RegisterExpenseRow[]
+  /** Sales totals by payment method (from API when sessionId is set) */
   paymentBreakdown: PaymentBreakdown
+  /** From API `total_sales_amount` while session is open */
+  serverTotalSalesAmount: number
+  /** From API `total_expenses` while session is open */
+  serverTotalExpenses: number
   lastClose: LastCloseSnapshot | null
 }
 
@@ -71,12 +83,15 @@ const emptyPayments = (): PaymentBreakdown => ({
 
 const defaultState = (): PersistedState => ({
   isOpen: false,
+  sessionId: null,
   openedAt: null,
   openedBy: null,
   openingBalance: 0,
   openingNote: '',
   expenses: [],
   paymentBreakdown: emptyPayments(),
+  serverTotalSalesAmount: 0,
+  serverTotalExpenses: 0,
   lastClose: null,
 })
 
@@ -88,8 +103,11 @@ function loadState(): PersistedState {
     return {
       ...defaultState(),
       ...p,
-      expenses: Array.isArray(p.expenses) ? p.expenses : [],
+      sessionId: typeof p.sessionId === 'number' ? p.sessionId : null,
+      expenses: Array.isArray(p.expenses) ? (p.expenses as RegisterExpenseRow[]) : [],
       paymentBreakdown: { ...emptyPayments(), ...p.paymentBreakdown },
+      serverTotalSalesAmount: typeof p.serverTotalSalesAmount === 'number' ? p.serverTotalSalesAmount : 0,
+      serverTotalExpenses: typeof p.serverTotalExpenses === 'number' ? p.serverTotalExpenses : 0,
       lastClose: p.lastClose ?? null,
     }
   } catch {
@@ -143,6 +161,88 @@ export function CashRegisterScreen() {
   const userEmail = typeof localStorage !== 'undefined' ? localStorage.getItem('pos.user_email') : null
   const operator = userEmail?.trim() || 'Operator'
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const cur = await getCurrentCashRegisterSession()
+        if (cancelled) return
+        if (cur && cur.status === 'open') {
+          setState((prev) => ({
+            ...prev,
+            isOpen: true,
+            sessionId: cur.id,
+            openedAt: cur.opened_at,
+            openedBy: operator,
+            openingBalance: summaryOpeningBalance(cur),
+            openingNote: (cur.notes ?? '').trim(),
+            serverTotalSalesAmount: summaryTotalSales(cur),
+            serverTotalExpenses: summaryTotalExpenses(cur),
+            expenses: [],
+            paymentBreakdown: emptyPayments(),
+          }))
+        } else {
+          setState((prev) => ({
+            ...prev,
+            isOpen: false,
+            sessionId: null,
+            openedAt: null,
+            openedBy: null,
+            openingBalance: 0,
+            openingNote: '',
+            expenses: [],
+            paymentBreakdown: emptyPayments(),
+            serverTotalSalesAmount: 0,
+            serverTotalExpenses: 0,
+          }))
+        }
+      } catch {
+        /* keep sessionStorage-hydrated state if the request fails */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [operator])
+
+  const loadSessionSnapshot = useCallback(async (sessionId: number) => {
+    try {
+      const [bd, cur, expenses] = await Promise.all([
+        getSessionPaymentBreakdown(sessionId),
+        getCurrentCashRegisterSession(),
+        listSessionExpenses(sessionId),
+      ])
+      if (cur == null || cur.id !== sessionId || cur.status !== 'open') return
+      setState((prev) => {
+        if (prev.sessionId !== sessionId) return prev
+        return {
+          ...prev,
+          paymentBreakdown: bd,
+          serverTotalSalesAmount: summaryTotalSales(cur),
+          serverTotalExpenses: summaryTotalExpenses(cur),
+          expenses,
+        }
+      })
+    } catch {
+      /* keep existing state on failure */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (state.sessionId == null) return
+    const sessionId: number = state.sessionId
+
+    void loadSessionSnapshot(sessionId)
+
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void loadSessionSnapshot(sessionId)
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [state.sessionId, loadSessionSnapshot])
+
   const cashSales = state.paymentBreakdown.cash
   const expensesTotal = useMemo(
     () => state.expenses.reduce((s, e) => s + e.amount, 0),
@@ -162,56 +262,93 @@ export function CashRegisterScreen() {
     [state.paymentBreakdown],
   )
 
-  const handleOpenSession = useCallback((openingBalance: number, openingNote: string) => {
+  const sessionSalesDisplay = state.isOpen
+    ? state.sessionId != null
+      ? Math.max(totalSalesAllMethods, state.serverTotalSalesAmount)
+      : totalSalesAllMethods
+    : 0
+
+  const handleOpenSession = useCallback(async (openingBalance: number, openingNote: string) => {
+    const summary = await openCashRegisterSession({
+      opening_balance: openingBalance,
+      notes: openingNote.trim(),
+    })
     setState((prev) => ({
       isOpen: true,
-      openedAt: new Date().toISOString(),
+      sessionId: summary.id,
+      openedAt: summary.opened_at,
       openedBy: operator,
-      openingBalance,
-      openingNote: openingNote.trim(),
+      openingBalance: summaryOpeningBalance(summary),
+      openingNote: (summary.notes ?? '').trim(),
       expenses: [],
       paymentBreakdown: emptyPayments(),
       lastClose: prev.lastClose,
+      serverTotalSalesAmount: summaryTotalSales(summary),
+      serverTotalExpenses: summaryTotalExpenses(summary),
     }))
     setOpenModal(false)
   }, [operator])
 
-  const handleCloseSession = useCallback((actualCash: number, closingNote: string) => {
-    setState((prev) => {
-      if (!prev.isOpen) return prev
-      const cSales = prev.paymentBreakdown.cash
-      const expTotal = prev.expenses.reduce((s, e) => s + e.amount, 0)
-      const expCash = Math.round((prev.openingBalance + cSales - expTotal) * 100) / 100
-      const discrepancy = Math.round((actualCash - expCash) * 100) / 100
-      return {
-        ...defaultState(),
-        isOpen: false,
-        lastClose: {
-          closedAt: new Date().toISOString(),
-          openingBalance: prev.openingBalance,
-          cashSales: cSales,
-          expensesTotal: expTotal,
-          expectedCash: expCash,
-          actualCash,
-          discrepancy,
-          openingNote: prev.openingNote,
-          closingNote: closingNote.trim(),
-        },
+  const handleCloseSession = useCallback(
+    async (actualCash: number, closingNote: string) => {
+      const sid = state.sessionId
+      if (sid != null) {
+        await closeCashRegisterSession(sid, {
+          closing_balance: actualCash,
+          notes: closingNote.trim() || null,
+        })
       }
-    })
-    setCloseModal(false)
-  }, [])
 
-  const addExpense = useCallback((amount: number, note: string) => {
-    if (amount <= 0) return
-    setState((prev) => ({
-      ...prev,
-      expenses: [
-        ...prev.expenses,
-        { id: uid(), amount, note: note.trim() || 'Expense', at: new Date().toISOString() },
-      ],
-    }))
-  }, [])
+      setState((prev) => {
+        if (!prev.isOpen) return prev
+        const cSales = prev.paymentBreakdown.cash
+        const expTotal = prev.expenses.reduce((s, e) => s + e.amount, 0)
+        const expCash = Math.round((prev.openingBalance + cSales - expTotal) * 100) / 100
+        const discrepancy = Math.round((actualCash - expCash) * 100) / 100
+        return {
+          ...defaultState(),
+          isOpen: false,
+          lastClose: {
+            closedAt: new Date().toISOString(),
+            openingBalance: prev.openingBalance,
+            cashSales: cSales,
+            expensesTotal: expTotal,
+            expectedCash: expCash,
+            actualCash,
+            discrepancy,
+            openingNote: prev.openingNote,
+            closingNote: closingNote.trim(),
+          },
+        }
+      })
+      setCloseModal(false)
+    },
+    [state.sessionId],
+  )
+
+  const addExpense = useCallback(
+    async (amount: number, note: string) => {
+      if (amount <= 0) return
+      const sid = state.sessionId
+      if (sid != null) {
+        await createSessionExpense(sid, {
+          amount,
+          category: 'other',
+          description: note.trim() || 'Expense',
+        })
+        await loadSessionSnapshot(sid)
+        return
+      }
+      setState((prev) => ({
+        ...prev,
+        expenses: [
+          ...prev.expenses,
+          { id: uid(), amount, note: note.trim() || 'Expense', at: new Date().toISOString() },
+        ],
+      }))
+    },
+    [state.sessionId, loadSessionSnapshot],
+  )
 
   const activityItems = useMemo(() => {
     const items: {
@@ -234,24 +371,29 @@ export function CashRegisterScreen() {
     }
 
     for (const e of state.expenses) {
+      const detail =
+        e.category && e.category !== 'other' ? `${e.category} · ${e.note}` : e.note
       items.push({
         id: e.id,
         at: e.at,
         kind: 'expense',
         title: 'Expense recorded',
-        detail: e.note,
+        detail,
         amount: -e.amount,
       })
     }
 
-    if (totalSalesAllMethods > 0) {
+    if (sessionSalesDisplay > 0) {
       items.push({
         id: 'sales-agg',
         at: state.openedAt ?? new Date().toISOString(),
         kind: 'sale_stub',
         title: 'Sales (session)',
-        detail: 'Cash · MonCash · Transfer · Credit',
-        amount: totalSalesAllMethods,
+        detail:
+          state.sessionId != null
+            ? 'Total from register session (all methods)'
+            : 'Cash · MonCash · Transfer · Credit',
+        amount: sessionSalesDisplay,
       })
     }
 
@@ -278,13 +420,15 @@ export function CashRegisterScreen() {
     state.expenses,
     state.lastClose,
     totalSalesAllMethods,
+    sessionSalesDisplay,
+    state.sessionId,
     operator,
   ])
 
   return (
     <AppShell
       title="Cash register"
-      subtitle="Session control, reconciliation, and audit trail — frontend preview until API is live."
+      subtitle="Session control, reconciliation, and audit trail — open/close and totals sync with the server."
       quickActionLabel="New sale"
       onQuickAction={() => navigate('/sales/new')}
       backOverride={{ to: '/home', ariaLabel: 'Back to home', title: 'Home' }}
@@ -336,28 +480,28 @@ export function CashRegisterScreen() {
           <Kpi
             label="Cash sales"
             value={formatMoney(state.paymentBreakdown.cash)}
-            hint="In-drawer sales"
+            hint={state.sessionId != null ? 'Posted sales · cash' : 'In-drawer sales'}
             icon={<Banknote className="h-4 w-4" strokeWidth={1.5} />}
             accent="emerald"
           />
           <Kpi
             label="MonCash"
             value={formatMoney(state.paymentBreakdown.moncash)}
-            hint="Mobile money"
+            hint={state.sessionId != null ? 'Posted sales · MonCash' : 'Mobile money'}
             icon={<CreditCard className="h-4 w-4" strokeWidth={1.5} />}
             accent="sky"
           />
           <Kpi
             label="Transfer"
             value={formatMoney(state.paymentBreakdown.transfer)}
-            hint="Bank / wire"
+            hint={state.sessionId != null ? 'Posted sales · transfer' : 'Bank / wire'}
             icon={<Landmark className="h-4 w-4" strokeWidth={1.5} />}
             accent="violet"
           />
           <Kpi
             label="Credit"
             value={formatMoney(state.paymentBreakdown.credit)}
-            hint="On account"
+            hint={state.sessionId != null ? 'Posted sales · on account' : 'On account'}
             icon={<Receipt className="h-4 w-4" strokeWidth={1.5} />}
             accent="amber"
           />
@@ -367,7 +511,9 @@ export function CashRegisterScreen() {
           <Kpi
             label="Expenses"
             value={formatMoney(expensesTotal)}
-            hint="Paid from drawer this session"
+            hint={
+              state.sessionId != null ? 'Paid from drawer · synced with server' : 'Paid from drawer this session'
+            }
             icon={<ArrowDownRight className="h-4 w-4" strokeWidth={1.5} />}
             accent="rose"
             emphasize={expensesTotal > 0}
@@ -382,17 +528,20 @@ export function CashRegisterScreen() {
           />
           <Kpi
             label="Session sales (all methods)"
-            value={formatMoney(state.isOpen ? totalSalesAllMethods : 0)}
-            hint="Gross attributed to this session"
+            value={formatMoney(state.isOpen ? sessionSalesDisplay : 0)}
+            hint={
+              state.sessionId != null
+                ? 'From server (all payment methods)'
+                : 'Gross attributed to this session'
+            }
             icon={<Sparkles className="h-4 w-4" strokeWidth={1.5} />}
             accent="muted"
           />
         </div>
 
-        {!state.isOpen ? (
+        {state.isOpen && state.sessionId == null ? (
           <div className="rounded-2xl border border-white/10 border-dashed bg-white/[0.02] px-4 py-3 text-center text-xs text-ink/50">
-            Payment splits above stay at HTG 0 until the register API links live sales. Expenses and opening float still
-            work in this preview.
+            Open a register session on the server to load live payment splits from posted sales.
           </div>
         ) : null}
 
@@ -576,29 +725,44 @@ function Kpi({
   )
 }
 
-function ExpensePanel({ onAdd }: { onAdd: (amount: number, note: string) => void }) {
+function ExpensePanel({ onAdd }: { onAdd: (amount: number, note: string) => Promise<void> }) {
   const [amountStr, setAmountStr] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  function submit() {
+  async function submit() {
     const amount = parseAmount(amountStr)
     if (amount <= 0) return
+    setError(null)
     setBusy(true)
-    window.setTimeout(() => {
-      onAdd(amount, note)
+    try {
+      await onAdd(amount, note)
       setAmountStr('')
       setNote('')
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not record expense')
+    } finally {
       setBusy(false)
-    }, 120)
+    }
   }
 
   return (
     <section className="rounded-3xl border border-white/10 bg-white/[0.025] p-5">
       <div className="border-b border-white/10 pb-4">
         <div className="text-sm font-semibold tracking-[-0.02em] text-ink/88">Record expense</div>
-        <div className="mt-1 text-xs text-ink/48">Withdrawals from the drawer — reduces expected cash.</div>
+        <div className="mt-1 text-xs text-ink/48">
+          Withdrawals from the drawer — saved on the server when a register session is open.
+        </div>
       </div>
+      {error ? (
+        <div
+          role="alert"
+          className="mt-4 rounded-xl border border-rose-500/35 bg-rose-500/[0.08] px-3 py-2 text-xs text-rose-100/90"
+        >
+          {error}
+        </div>
+      ) : null}
       <div className="mt-4 grid gap-4 md:grid-cols-[1fr_1.2fr_auto] md:items-end">
         <div>
           <FieldLabel htmlFor="exp-amt">Amount (HTG)</FieldLabel>
@@ -765,18 +929,33 @@ function OpenRegisterModal({
   onConfirm,
 }: {
   onClose: () => void
-  onConfirm: (openingBalance: number, note: string) => void
+  onConfirm: (openingBalance: number, note: string) => Promise<void>
 }) {
   const [balanceStr, setBalanceStr] = useState('')
   const [note, setNote] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !pending) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, pending])
+
+  async function submit() {
+    setError(null)
+    setPending(true)
+    try {
+      await onConfirm(parseAmount(balanceStr), note)
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : 'Could not open register'
+      setError(message)
+    } finally {
+      setPending(false)
+    }
+  }
 
   return (
     <ModalBackdrop onClose={onClose}>
@@ -796,7 +975,8 @@ function OpenRegisterModal({
             <button
               type="button"
               onClick={onClose}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-ink/60 transition hover:bg-white/[0.07] hover:text-ink"
+              disabled={pending}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-ink/60 transition hover:bg-white/[0.07] hover:text-ink disabled:opacity-50"
               aria-label="Close"
             >
               <X className="h-4 w-4" strokeWidth={1.75} />
@@ -804,6 +984,14 @@ function OpenRegisterModal({
           </div>
         </div>
         <div className="relative space-y-4 px-6 py-5">
+          {error ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-rose-500/35 bg-rose-500/[0.08] px-3 py-2 text-xs text-rose-100/90"
+            >
+              {error}
+            </div>
+          ) : null}
           <div>
             <FieldLabel htmlFor="open-bal">Opening balance (HTG)</FieldLabel>
             <TextField
@@ -829,16 +1017,16 @@ function OpenRegisterModal({
           </div>
         </div>
         <div className="relative flex flex-col gap-2 border-t border-white/10 bg-white/[0.02] px-6 py-4 sm:flex-row sm:justify-end">
-          <Button type="button" variant="ghost" className="sm:min-w-[100px]" onClick={onClose}>
+          <Button type="button" variant="ghost" className="sm:min-w-[100px]" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button
-            type="button"
-            className="sm:min-w-[140px]"
-            onClick={() => onConfirm(parseAmount(balanceStr), note)}
-          >
-            <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
-            Confirm open
+          <Button type="button" className="sm:min-w-[140px]" onClick={() => void submit()} disabled={pending}>
+            {pending ? (
+              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
+            ) : (
+              <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
+            )}
+            {pending ? 'Opening…' : 'Confirm open'}
           </Button>
         </div>
       </div>
@@ -856,7 +1044,7 @@ function CloseRegisterModal({
   paymentBreakdown,
 }: {
   onClose: () => void
-  onConfirm: (actual: number, note: string) => void
+  onConfirm: (actual: number, note: string) => Promise<void>
   openingBalance: number
   cashSales: number
   expensesTotal: number
@@ -865,17 +1053,31 @@ function CloseRegisterModal({
 }) {
   const [actualStr, setActualStr] = useState('')
   const [note, setNote] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const actual = parseAmount(actualStr)
   const discrepancy = Math.round((actual - expectedCash) * 100) / 100
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !pending) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, pending])
+
+  async function submit() {
+    setError(null)
+    setPending(true)
+    try {
+      await onConfirm(actual, note)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not close register')
+    } finally {
+      setPending(false)
+    }
+  }
 
   return (
     <ModalBackdrop onClose={onClose}>
@@ -895,7 +1097,8 @@ function CloseRegisterModal({
             <button
               type="button"
               onClick={onClose}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-ink/60 transition hover:bg-white/[0.07] hover:text-ink"
+              disabled={pending}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-ink/60 transition hover:bg-white/[0.07] hover:text-ink disabled:opacity-50"
               aria-label="Close"
             >
               <X className="h-4 w-4" strokeWidth={1.75} />
@@ -904,6 +1107,14 @@ function CloseRegisterModal({
         </div>
 
         <div className="relative max-h-[min(70vh,520px)] overflow-y-auto px-6 py-5">
+          {error ? (
+            <div
+              role="alert"
+              className="mb-4 rounded-xl border border-rose-500/35 bg-rose-500/[0.08] px-3 py-2 text-xs text-rose-100/90"
+            >
+              {error}
+            </div>
+          ) : null}
           <div className="grid gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm">
             <div className="flex justify-between gap-3 text-ink/65">
               <span>Opening balance</span>
@@ -993,12 +1204,22 @@ function CloseRegisterModal({
         </div>
 
         <div className="relative flex flex-col gap-2 border-t border-white/10 bg-white/[0.02] px-6 py-4 sm:flex-row sm:justify-end">
-          <Button type="button" variant="ghost" className="sm:min-w-[100px]" onClick={onClose}>
+          <Button type="button" variant="ghost" className="sm:min-w-[100px]" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button type="button" variant="highlight" className="sm:min-w-[160px]" onClick={() => onConfirm(actual, note)}>
-            <Lock className="h-4 w-4" strokeWidth={1.75} />
-            Close register
+          <Button
+            type="button"
+            variant="highlight"
+            className="sm:min-w-[160px]"
+            onClick={() => void submit()}
+            disabled={pending}
+          >
+            {pending ? (
+              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
+            ) : (
+              <Lock className="h-4 w-4" strokeWidth={1.75} />
+            )}
+            {pending ? 'Closing…' : 'Close register'}
           </Button>
         </div>
       </div>

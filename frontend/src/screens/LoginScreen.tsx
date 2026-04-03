@@ -6,6 +6,7 @@ import { BackToHome } from '../components/BackToHome'
 import { BrandMark } from '../components/BrandMark'
 import { Button } from '../components/ui/Button'
 import { FieldLabel, TextField } from '../components/ui/Field'
+import { useWorkspaceBranding } from '../branding/BrandingContext'
 import { getDefaultThemeSettings, THEME_PALETTES, type ThemeSettings } from '../theme/palette'
 
 function getThemeController(): { settings: ThemeSettings; setSettings: (s: ThemeSettings) => void } | null {
@@ -17,6 +18,7 @@ export function LoginScreen() {
   const navigate = useNavigate()
   const theme = getThemeController()
   const settings = theme?.settings
+  const { branding } = useWorkspaceBranding()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -84,7 +86,7 @@ export function LoginScreen() {
             <div className="inline-flex items-center gap-3">
               <BrandMark size={44} />
               <div>
-                <div className="text-sm font-semibold tracking-[-0.01em] text-ink/90">POS Boutique</div>
+                <div className="text-sm font-semibold tracking-[-0.01em] text-ink/90">{branding.posName}</div>
                 <div className="text-xs text-ink/55">Commerce command center</div>
               </div>
             </div>
@@ -124,7 +126,7 @@ export function LoginScreen() {
               <div className="flex items-center gap-3">
                 <BrandMark size={40} />
                 <div>
-                  <div className="text-sm font-semibold tracking-[-0.01em] text-ink/90">POS Boutique</div>
+                  <div className="text-sm font-semibold tracking-[-0.01em] text-ink/90">{branding.posName}</div>
                   <div className="text-xs text-ink/55">Commerce command center</div>
                 </div>
               </div>

@@ -38,3 +38,15 @@ class ProductResponse(ProductBase):
     created_at: datetime
     updated_at: datetime
 
+
+class LowStockRow(BaseModel):
+    id: int
+    name: str
+    stock: int
+    min_stock: int
+
+
+class LowStockSummary(BaseModel):
+    count: int
+    items: list[LowStockRow]
+

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -20,6 +21,7 @@ from src.schemas.sale import (
     SaleItemResponse,
     SaleListRow,
     SaleResponse,
+    SalesTodaySummary,
     SaleUpdate,
     StockMovementResponse,
 )
@@ -33,6 +35,8 @@ from src.services.sale_service import (
 )
 
 router = APIRouter(prefix="/sales", tags=["sales"])
+
+_BUSINESS_TZ = ZoneInfo("America/Port-au-Prince")
 
 
 def _sale_http_error(exc: SaleWorkflowError) -> HTTPException:
@@ -192,6 +196,34 @@ def list_sales_by_customer(
         limit=limit,
     )
     return _rows_to_sale_list_rows(list(db.execute(stmt).all()))
+
+
+@router.get("/today", response_model=SalesTodaySummary)
+def get_sales_today(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+    business_date: date | None = Query(
+        default=None,
+        description="Calendar day (YYYY-MM-DD). Defaults to the current date in America/Port-au-Prince.",
+    ),
+) -> SalesTodaySummary:
+    """Aggregate gross sales and transaction count for one calendar day (boutique local time, HTG context)."""
+    day = business_date if business_date is not None else datetime.now(_BUSINESS_TZ).date()
+    start_local = datetime.combine(day, time.min, tzinfo=_BUSINESS_TZ)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(timezone.utc)
+    end_utc = end_local.astimezone(timezone.utc)
+
+    stmt = select(func.coalesce(func.sum(Sale.total), 0), func.count(Sale.id)).where(
+        Sale.created_at >= start_utc,
+        Sale.created_at < end_utc,
+    )
+    gross_raw, txn_count = db.execute(stmt).one()
+    return SalesTodaySummary(
+        gross_total=gross_raw,
+        transaction_count=int(txn_count or 0),
+        business_date=day,
+    )
 
 
 @router.get("/{sale_id}", response_model=SaleResponse)

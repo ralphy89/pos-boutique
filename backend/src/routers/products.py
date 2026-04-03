@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from src.auth.deps import get_current_user
 from src.db.session import get_db
 from src.models.product import Product
 from src.models.user import User
-from src.schemas.product import ProductCreate, ProductResponse, ProductUpdate
+from src.schemas.product import LowStockRow, LowStockSummary, ProductCreate, ProductResponse, ProductUpdate
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -63,6 +63,29 @@ def list_products(
     stmt = stmt.order_by(Product.created_at.desc()).offset(skip).limit(limit)
     products = db.scalars(stmt).all()
     return [_to_product_response(p) for p in products]
+
+
+@router.get("/low-stock/summary", response_model=LowStockSummary)
+def low_stock_summary(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+    preview_limit: int = Query(default=12, ge=1, le=50, description="Max rows returned in `items`."),
+) -> LowStockSummary:
+    """Active catalog items where current stock is at or below the configured minimum."""
+    cond = (Product.stock <= Product.min_stock) & (Product.status == "active")
+    total = db.scalar(select(func.count()).select_from(Product).where(cond)) or 0
+    rows = db.scalars(
+        select(Product)
+        .where(cond)
+        .order_by(Product.stock.asc(), Product.name.asc())
+        .limit(preview_limit)
+    ).all()
+    return LowStockSummary(
+        count=int(total),
+        items=[
+            LowStockRow(id=p.id, name=p.name, stock=p.stock, min_stock=p.min_stock) for p in rows
+        ],
+    )
 
 
 @router.get("/{product_id}", response_model=ProductResponse)

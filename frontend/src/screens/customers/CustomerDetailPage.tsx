@@ -1,27 +1,39 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import {
   Activity,
+  ArrowUpRight,
   CreditCard,
   FileText,
   Loader2,
   Pencil,
   Phone,
+  PiggyBank,
   Receipt,
   Sparkles,
   Wallet,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
+import { getCustomerCreditLedgerApi, type CreditLedgerEntryApi } from '../../api/credit'
 import { getCustomerApi } from '../../api/customers'
 import { ApiError } from '../../api/client'
 import { AppShell } from '../../components/layout/AppShell'
 import { Button } from '../../components/ui/Button'
+import { RecordPaymentModal } from '../credits/RecordPaymentModal'
 import { customerMetrics, parseCustomerIdParam, toCustomerRecord } from '../../domain/customerView'
 import type { CustomerRecord } from '../../types/customer'
-import type { DebtRow, PurchaseRow } from '../../types/customer'
+import type { DebtorSummary } from '../../types/credit'
+import type { PurchaseRow } from '../../types/customer'
+import { moneyFromApi } from '../../types/product'
 
 function formatMoney(htg: number) {
-  return `HTG ${htg.toLocaleString()}`
+  return `HTG ${htg.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+}
+
+function formatPaymentMethod(m: string) {
+  if (!m) return '—'
+  if (m === 'moncash') return 'MonCash'
+  return m.charAt(0).toUpperCase() + m.slice(1)
 }
 
 function formatDateTime(iso: string) {
@@ -48,10 +60,29 @@ function channelLabel(ch: PurchaseRow['channel']) {
   return 'Phone'
 }
 
-function debtTypeLabel(t: DebtRow['type']) {
-  if (t === 'charge') return 'Charge'
-  if (t === 'payment') return 'Payment'
-  return 'Adjustment'
+function mapLedgerForDisplay(entries: CreditLedgerEntryApi[]) {
+  return entries.map((e) => {
+    const amt = moneyFromApi(e.amount)
+    if (e.kind === 'charge') {
+      return {
+        id: `charge-${e.record_id}`,
+        at: e.created_at,
+        kind: 'charge' as const,
+        title: e.sale_id != null ? `Credit sale #${e.sale_id}` : 'Credit charge',
+        detail: `Balance after ${formatMoney(moneyFromApi(e.balance_after))}`,
+        amount: amt,
+      }
+    }
+    const parts = [e.payment_method ? formatPaymentMethod(e.payment_method) : null, e.note].filter(Boolean) as string[]
+    return {
+      id: `pay-${e.record_id}`,
+      at: e.created_at,
+      kind: 'payment' as const,
+      title: 'Repayment',
+      detail: parts.length ? parts.join(' · ') : '—',
+      amount: amt,
+    }
+  })
 }
 
 export function CustomerDetailPage() {
@@ -59,13 +90,19 @@ export function CustomerDetailPage() {
   const navigate = useNavigate()
   const id = parseCustomerIdParam(customerId)
   const [c, setC] = useState<CustomerRecord | null>(null)
+  const [ledgerEntries, setLedgerEntries] = useState<CreditLedgerEntryApi[]>([])
+  const [ledgerError, setLedgerError] = useState<string | null>(null)
   const [loading, setLoading] = useState(Boolean(id))
   const [notFound, setNotFound] = useState(!id)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [tick, setTick] = useState(0)
 
   useEffect(() => {
     if (!id) {
       setC(null)
+      setLedgerEntries([])
+      setLedgerError(null)
       setLoading(false)
       setNotFound(true)
       setFetchError(null)
@@ -75,18 +112,33 @@ export function CustomerDetailPage() {
     setLoading(true)
     setNotFound(false)
     setFetchError(null)
+    setLedgerError(null)
     ;(async () => {
       try {
-        const row = await getCustomerApi(id)
+        const row = await getCustomerApi(id, { purchaseHistoryLimit: 40 })
         if (cancelled) return
         setC(toCustomerRecord(row))
       } catch (e) {
         if (cancelled) return
         setC(null)
+        setLedgerEntries([])
         if (e instanceof ApiError && e.status === 404) {
           setNotFound(true)
         } else {
           setFetchError(e instanceof Error ? e.message : 'Failed to load customer.')
+        }
+        if (!cancelled) setLoading(false)
+        return
+      }
+      try {
+        const ledgerRes = await getCustomerCreditLedgerApi(id)
+        if (cancelled) return
+        setLedgerEntries(ledgerRes.entries)
+        setLedgerError(null)
+      } catch (e) {
+        if (!cancelled) {
+          setLedgerEntries([])
+          setLedgerError(e instanceof Error ? e.message : 'Could not load credit ledger.')
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -95,10 +147,24 @@ export function CustomerDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, tick])
 
   const m = c ? customerMetrics(c) : null
   const over = c && c.creditLimit != null && m && m.currentDebt > c.creditLimit
+
+  const creditLedgerRows = useMemo(() => mapLedgerForDisplay(ledgerEntries), [ledgerEntries])
+
+  const debtorForPayment = useMemo((): DebtorSummary | null => {
+    if (!c || !m || c.status !== 'active') return null
+    return {
+      customerId: c.id,
+      name: c.name,
+      phone: c.phone,
+      status: c.status,
+      creditLimit: c.creditLimit,
+      debtBalance: m.currentDebt,
+    }
+  }, [c, m])
 
   if (loading) {
     return (
@@ -150,7 +216,6 @@ export function CustomerDetailPage() {
   }
 
   const purchases = [...c.purchases].sort((a, b) => b.date.localeCompare(a.date))
-  const debtRows = [...c.debtLedger].sort((a, b) => b.date.localeCompare(a.date))
   const activities = [...c.activities].sort((a, b) => b.date.localeCompare(a.date))
 
   const limitUse =
@@ -292,47 +357,84 @@ export function CustomerDetailPage() {
             )}
           </LedgerPanel>
 
-          <LedgerPanel title="Debt & payments" subtitle="Charges, settlements, and adjustments">
-            {debtRows.length === 0 ? (
-              <EmptyPanel text="No receivable movements yet." />
-            ) : (
-              <div className="divide-y divide-white/[0.06]">
-                {debtRows.map((d) => (
-                  <div key={d.id} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={clsx(
-                            'rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]',
-                            d.type === 'payment'
-                              ? 'border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-200/85'
-                              : d.type === 'charge'
-                                ? 'border-amber-400/25 bg-amber-400/[0.08] text-amber-100/85'
-                                : 'border-white/15 bg-white/[0.04] text-ink/65',
-                          )}
-                        >
-                          {debtTypeLabel(d.type)}
-                        </span>
-                        {d.note ? (
-                          <span className="truncate text-xs text-ink/50">{d.note}</span>
-                        ) : null}
-                      </div>
-                      <div className="mt-1 text-xs text-ink/48">{formatDateTime(d.date)}</div>
-                    </div>
-                    <div
-                      className={clsx(
-                        'shrink-0 text-sm font-semibold tabular-nums',
-                        d.type === 'payment' ? 'text-emerald-200/90' : 'text-ink/88',
-                      )}
-                    >
-                      {d.type === 'payment' ? '−' : '+'}
-                      {formatMoney(d.amount)}
-                    </div>
-                  </div>
-                ))}
+          <section className="rounded-3xl border border-white/10 bg-white/[0.025] p-5">
+            <div className="flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold tracking-[-0.02em] text-ink/88">Debt & payments</div>
+                <div className="mt-1 text-xs text-ink/48">
+                  Credit sales (charges) and repayments — newest first.
+                </div>
               </div>
-            )}
-          </LedgerPanel>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="highlight"
+                  className="h-9 text-xs"
+                  disabled={m.currentDebt <= 0 || c.status !== 'active'}
+                  onClick={() => setPaymentOpen(true)}
+                >
+                  <PiggyBank className="h-4 w-4" strokeWidth={1.75} />
+                  Record payment
+                </Button>
+                <Link
+                  to={`/credits/${c.id}`}
+                  className="inline-flex h-9 items-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] px-3 text-xs font-medium text-ink/80 transition hover:border-white/15 hover:bg-white/[0.06]"
+                >
+                  Credit center
+                  <ArrowUpRight className="h-3.5 w-3.5 opacity-60" strokeWidth={1.75} />
+                </Link>
+              </div>
+            </div>
+            <div className="pt-4">
+              {ledgerError ? (
+                <div className="mb-4 rounded-xl border border-white/10 bg-[color-mix(in_oklab,var(--highlight)_8%,transparent)] px-3 py-2 text-xs text-[color-mix(in_oklab,var(--highlight)_78%,white)]">
+                  {ledgerError}
+                </div>
+              ) : null}
+              {creditLedgerRows.length === 0 ? (
+                <EmptyPanel
+                  text={
+                    ledgerError
+                      ? 'Credit ledger unavailable — try refresh or open Credit center.'
+                      : 'No credit charges or repayments yet. Credit sales and payments will appear here.'
+                  }
+                />
+              ) : (
+                <div className="divide-y divide-white/[0.06]">
+                  {creditLedgerRows.map((row) => (
+                    <div key={row.id} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={clsx(
+                              'rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]',
+                              row.kind === 'payment'
+                                ? 'border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-200/85'
+                                : 'border-amber-400/25 bg-amber-400/[0.08] text-amber-100/85',
+                            )}
+                          >
+                            {row.kind === 'payment' ? 'Payment' : 'Charge'}
+                          </span>
+                          <span className="text-sm font-medium tracking-[-0.02em] text-ink/88">{row.title}</span>
+                        </div>
+                        <div className="mt-1 text-xs text-ink/50">{row.detail}</div>
+                        <div className="mt-1 text-[11px] text-ink/45">{formatDateTime(row.at)}</div>
+                      </div>
+                      <div
+                        className={clsx(
+                          'shrink-0 text-sm font-semibold tabular-nums',
+                          row.kind === 'payment' ? 'text-emerald-200/90' : 'text-amber-100/90',
+                        )}
+                      >
+                        {row.kind === 'payment' ? '−' : '+'}
+                        {formatMoney(row.amount)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
         </div>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -375,6 +477,17 @@ export function CustomerDetailPage() {
           </Link>
         </div>
       </div>
+
+      {paymentOpen && debtorForPayment ? (
+        <RecordPaymentModal
+          debtor={debtorForPayment}
+          onClose={() => setPaymentOpen(false)}
+          onRecorded={() => {
+            setTick((t) => t + 1)
+            setPaymentOpen(false)
+          }}
+        />
+      ) : null}
     </AppShell>
   )
 }

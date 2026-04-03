@@ -20,7 +20,7 @@ import { customerMetrics, toCustomerRecord } from '../../domain/customerView'
 import type { CustomerRecord, CustomerStatus } from '../../types/customer'
 
 function formatMoney(htg: number) {
-  return `HTG ${htg.toLocaleString()}`
+  return `HTG ${htg.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
 
 function statusLabel(s: CustomerStatus) {
@@ -113,7 +113,7 @@ export function CustomersListPage() {
                 Customer roster
               </h2>
               <p className="mt-1.5 max-w-[62ch] text-pretty text-sm leading-relaxed text-ink/58">
-                Live data from your POS API. Search locally by name, phone, or address (up to 200 records).
+                Live data from the system. Search locally by name, phone, or address (up to 200 records).
               </p>
             </div>
             <Button type="button" className="shrink-0" onClick={() => navigate('/customers/new')}>
@@ -173,7 +173,7 @@ export function CustomersListPage() {
           <div className="border-b border-white/10 px-5 py-4">
             <div className="text-xs font-medium text-ink/55">Directory</div>
             <div className="mt-1 text-[11px] text-ink/45">
-              Tap a row for profile and ledger layout. Purchase and debt totals fill in when those APIs are wired.
+              Tap a row for profile, purchase history, and full ledger. Debt and limit shown here are live from the server.
             </div>
           </div>
 
@@ -183,10 +183,11 @@ export function CustomersListPage() {
             </div>
           ) : null}
 
-          <div className="hidden grid-cols-[1.35fr_0.95fr_0.85fr_0.65fr_auto] gap-3 border-b border-white/10 px-5 py-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink/45 lg:grid">
+          <div className="hidden grid-cols-[1.3fr_0.9fr_0.72fr_0.72fr_0.58fr_auto] gap-3 border-b border-white/10 px-5 py-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink/45 lg:grid">
             <div>Customer</div>
             <div>Phone</div>
             <div className="text-right">Credit limit</div>
+            <div className="text-right">Debt</div>
             <div>Status</div>
             <div className="text-right">Actions</div>
           </div>
@@ -257,8 +258,9 @@ function CustomerRow({
   onEdit: () => void
 }) {
   const m = customerMetrics(c)
-  const owing = m.currentDebt > 0
-  const over = c.creditLimit != null && m.currentDebt > c.creditLimit
+  const debt = m.currentDebt
+  const owing = debt > 0
+  const over = c.creditLimit != null && debt > c.creditLimit
 
   const rowSurface = over
     ? 'bg-[linear-gradient(90deg,color-mix(in_oklab,var(--highlight)_16%,transparent),transparent_50%)] shadow-[inset_4px_0_0_0_color-mix(in_oklab,var(--highlight)_58%,transparent)] hover:bg-[linear-gradient(90deg,color-mix(in_oklab,var(--highlight)_20%,transparent),rgba(255,255,255,0.03))]'
@@ -280,7 +282,7 @@ function CustomerRow({
       onClick={onOpen}
       onKeyDown={onRowKeyDown}
       className={clsx(
-        'group w-full cursor-pointer border-t border-white/10 px-5 py-4 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--accent)_40%,transparent)] lg:grid lg:grid-cols-[1.35fr_0.95fr_0.85fr_0.65fr_auto] lg:items-center lg:gap-3',
+        'group w-full cursor-pointer border-t border-white/10 px-5 py-4 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--accent)_40%,transparent)] lg:grid lg:grid-cols-[1.3fr_0.9fr_0.72fr_0.72fr_0.58fr_auto] lg:items-center lg:gap-3',
         menuOpen && 'relative z-30',
         rowSurface,
       )}
@@ -293,12 +295,28 @@ function CustomerRow({
         <div className="mt-1 text-xs text-ink/45 lg:hidden">
           Limit: {c.creditLimit != null ? formatMoney(c.creditLimit) : '—'}
         </div>
+        <div className="mt-1 text-xs text-ink/45 lg:hidden">
+          Debt:{' '}
+          <span className={clsx(owing && 'font-medium text-amber-200/90', over && 'text-[color-mix(in_oklab,var(--highlight)_78%,white)]')}>
+            {formatMoney(debt)}
+          </span>
+        </div>
       </div>
 
       <div className="hidden text-sm text-ink/72 lg:block">{c.phone}</div>
 
       <div className="mt-3 hidden text-right text-sm tabular-nums text-ink/80 lg:mt-0 lg:block">
         {c.creditLimit != null ? formatMoney(c.creditLimit) : '—'}
+      </div>
+
+      <div
+        className={clsx(
+          'mt-3 hidden text-right text-sm tabular-nums lg:mt-0 lg:block',
+          owing ? 'font-medium text-amber-200/90' : 'text-ink/80',
+          over && 'text-[color-mix(in_oklab,var(--highlight)_78%,white)]',
+        )}
+      >
+        {formatMoney(debt)}
       </div>
 
       <div className="mt-3 lg:mt-0">

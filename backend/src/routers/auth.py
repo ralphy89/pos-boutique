@@ -9,7 +9,14 @@ from src.auth.deps import get_current_user
 from src.core.security import create_access_token, hash_password, verify_password
 from src.db.session import get_db
 from src.models.user import User
-from src.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from src.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    UpdateMeRequest,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -52,11 +59,61 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)) -> UserResponse:
+    return _user_response(current_user)
+
+
+def _user_response(user: User) -> UserResponse:
     return UserResponse(
-        id=current_user.id,
-        email=current_user.email,
-        full_name=current_user.full_name,
-        is_active=current_user.is_active,
-        is_admin=current_user.is_admin,
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        is_active=user.is_active,
+        is_admin=user.is_admin,
     )
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(
+    payload: UpdateMeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserResponse:
+    data = payload.model_dump(exclude_unset=True)
+    if "email" not in data:
+        return _user_response(current_user)
+    new_email = str(data["email"]).lower()
+    if new_email == current_user.email:
+        return _user_response(current_user)
+    pwd = data.get("current_password")
+    if not pwd or not verify_password(pwd, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is required to change your sign-in email",
+        )
+    taken = db.scalar(select(User).where(User.email == new_email))
+    if taken is not None:
+        raise HTTPException(status_code=409, detail="Email already in use")
+    current_user.email = new_email
+    db.commit()
+    db.refresh(current_user)
+    return _user_response(current_user)
+
+
+@router.post("/me/password", response_model=UserResponse)
+def change_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserResponse:
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the current password",
+        )
+    current_user.password_hash = hash_password(payload.new_password)
+    db.commit()
+    db.refresh(current_user)
+    return _user_response(current_user)
 

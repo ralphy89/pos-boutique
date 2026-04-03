@@ -25,6 +25,9 @@ class Sale(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     items: Mapped[list["SaleItem"]] = relationship("SaleItem", back_populates="sale", cascade="all, delete-orphan")
+    cash_register_session: Mapped["CashRegisterSession | None"] = relationship(
+        "CashRegisterSession", back_populates="sales"
+    )
 
 
 class SaleItem(Base):

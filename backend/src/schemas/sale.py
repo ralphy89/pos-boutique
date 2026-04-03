@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -66,6 +66,12 @@ class SaleListRow(BaseModel):
 
 class SaleUpdate(BaseModel):
     notes: str | None = Field(default=None, max_length=4000)
+
+
+class SalesTodaySummary(BaseModel):
+    gross_total: Decimal
+    transaction_count: int
+    business_date: date
 
 
 class StockMovementResponse(BaseModel):

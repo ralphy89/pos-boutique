@@ -12,9 +12,10 @@ export type ProductResponse = {
   updated_at: string
 }
 
-export function moneyFromApi(value: string | number): number {
-  if (typeof value === 'number') return value
-  const n = parseFloat(value)
+export function moneyFromApi(value: string | number | null | undefined): number {
+  if (value == null) return 0
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  const n = parseFloat(String(value))
   return Number.isFinite(n) ? n : 0
 }
 

@@ -1,13 +1,29 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Banknote, Barcode, CreditCard, Loader2, Minus, Percent, Plus, Search, Trash2, User } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Banknote,
+  Barcode,
+  CreditCard,
+  Loader2,
+  Minus,
+  Percent,
+  Plus,
+  Search,
+  ShieldCheck,
+  Trash2,
+  User,
+  X,
+} from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { getCustomerApi, listCustomersApi } from '../api/customers'
 import { getProduct, listProducts } from '../api/products'
 import { createSale } from '../api/sales'
 import { AppShell } from '../components/layout/AppShell'
 import { Button } from '../components/ui/Button'
 import { FieldLabel, TextField } from '../components/ui/Field'
-import type { CustomerResponse } from '../types/customer'
+import { printSaleReceipt } from '../utils/printReceipt'
+import { creditLimitFromApi, type CustomerDetailResponse, type CustomerResponse } from '../types/customer'
 import type { PaymentMethod } from '../types/sale'
 import { moneyFromApi, type ProductResponse } from '../types/product'
 
@@ -53,11 +69,16 @@ function discountFromPreset(preset: DiscountPreset, subtotal: number): number {
   return Math.round(subtotal * rate * 100) / 100
 }
 
-const PAYMENT_OPTIONS: { id: PaymentMethod; label: string; icon: ReactNode }[] = [
+const PAYMENT_OPTIONS: { id: PaymentMethod; label: string; icon: ReactNode; hint?: string }[] = [
   { id: 'cash', label: 'Cash', icon: <Banknote className="h-4 w-4" /> },
   { id: 'moncash', label: 'MonCash', icon: <CreditCard className="h-4 w-4" /> },
   { id: 'transfer', label: 'Transfer', icon: <CreditCard className="h-4 w-4" /> },
-  { id: 'credit', label: 'Credit', icon: <CreditCard className="h-4 w-4" /> },
+  {
+    id: 'credit',
+    label: 'Credit',
+    hint: 'On customer account',
+    icon: <CreditCard className="h-4 w-4" />,
+  },
 ]
 
 export function NewSaleScreen() {
@@ -72,7 +93,7 @@ export function NewSaleScreen() {
   const [highlightIndex, setHighlightIndex] = useState(0)
   const [cart, setCart] = useState<SaleCartLine[]>([])
 
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerResponse | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetailResponse | null>(null)
   const [custSearch, setCustSearch] = useState('')
   const [debouncedCustSearch, setDebouncedCustSearch] = useState('')
   const [custSuggestions, setCustSuggestions] = useState<CustomerResponse[]>([])
@@ -88,6 +109,8 @@ export function NewSaleScreen() {
   const [checkoutSuccess, setCheckoutSuccess] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [totalInputStr, setTotalInputStr] = useState('0')
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [printAfterSave, setPrintAfterSave] = useState(true)
 
   useEffect(() => {
     setCheckoutError(null)
@@ -189,13 +212,25 @@ export function NewSaleScreen() {
     return () => window.removeEventListener('pointerdown', onPointerDown)
   }, [custPickOpen])
 
-  function selectCustomer(c: CustomerResponse) {
-    if (c.status !== 'active') return
-    setSelectedCustomer(c)
+  function applySelectedCustomer(detail: CustomerDetailResponse) {
+    setSelectedCustomer(detail)
     setCustSearch('')
     setDebouncedCustSearch('')
     setCustSuggestions([])
     setCustPickOpen(false)
+    setCustError(null)
+  }
+
+  async function selectCustomerFromList(c: CustomerResponse) {
+    if (c.status !== 'active') return
+    setCustError(null)
+    try {
+      const detail = await getCustomerApi(c.id)
+      if (detail.status !== 'active') return
+      applySelectedCustomer(detail)
+    } catch (e) {
+      setCustError(e instanceof Error ? e.message : 'Could not load customer.')
+    }
   }
 
   async function trySelectCustomerById(raw: string): Promise<boolean> {
@@ -204,9 +239,9 @@ export function NewSaleScreen() {
     const id = parseInt(t, 10)
     if (id < 1) return false
     try {
-      const c = await getCustomerApi(id)
-      if (c.status !== 'active') return false
-      selectCustomer(c)
+      const detail = await getCustomerApi(id)
+      if (detail.status !== 'active') return false
+      applySelectedCustomer(detail)
       return true
     } catch {
       return false
@@ -234,7 +269,7 @@ export function NewSaleScreen() {
       void (async () => {
         if (await trySelectCustomerById(custSearch)) return
         const pick = custSuggestions[custHighlightIndex] ?? custSuggestions[0]
-        if (pick) selectCustomer(pick)
+        if (pick) void selectCustomerFromList(pick)
       })()
     }
   }
@@ -345,33 +380,65 @@ export function NewSaleScreen() {
     [totalInputStr, subtotal],
   )
 
+  const creditCheckoutPreview = useMemo(() => {
+    if (paymentMethod !== 'credit' || !selectedCustomer) return null
+    const currentDebt = moneyFromApi(selectedCustomer.debt_balance)
+    const limit = creditLimitFromApi(selectedCustomer.credit_limit)
+    const after = Math.round((currentDebt + parsedTotal) * 100) / 100
+    const overLimit = limit != null && limit > 0 && after > limit + 0.0001
+    return { currentDebt, limit, after, overLimit }
+  }, [paymentMethod, selectedCustomer, parsedTotal])
+
   const effectiveDiscount = useMemo(
     () => Math.max(0, Math.round((subtotal - parsedTotal) * 100) / 100),
     [subtotal, parsedTotal],
   )
 
-  const handleValidate = useCallback(async () => {
+  const canOpenConfirm = useCallback((): boolean => {
     setCheckoutSuccess(null)
     if (cart.length === 0) {
       setCheckoutError('Add at least one product.')
-      return
+      return false
     }
     if (paymentMethod === 'credit' && !selectedCustomer) {
       setCheckoutError('Credit payment requires a customer. Select one above.')
-      return
+      return false
+    }
+    if (paymentMethod === 'credit' && selectedCustomer) {
+      const currentDebt = moneyFromApi(selectedCustomer.debt_balance)
+      const limit = creditLimitFromApi(selectedCustomer.credit_limit)
+      const saleTotal = parseSaleTotalInput(totalInputStr, subtotal)
+      const after = Math.round((currentDebt + saleTotal) * 100) / 100
+      if (limit != null && limit > 0 && after > limit + 0.0001) {
+        setCheckoutError('This sale would exceed the customer’s credit limit.')
+        return false
+      }
     }
     setCheckoutError(null)
+    return true
+  }, [cart.length, paymentMethod, selectedCustomer, subtotal, totalInputStr])
+
+  const handleValidate = useCallback(async () => {
+    if (!canOpenConfirm()) return
     setIsSubmitting(true)
     try {
       const finalTotal = parseSaleTotalInput(totalInputStr, subtotal)
       const discountToSend = Math.round((subtotal - finalTotal) * 100) / 100
-      await createSale({
+      const saved = await createSale({
         customer_id: selectedCustomer?.id ?? null,
         payment_method: paymentMethod,
         discount: discountToSend > 0 ? discountToSend : null,
         items: cart.map((l) => ({ product_id: l.productId, quantity: l.quantity })),
         notes: notes.trim(),
       })
+      if (printAfterSave) {
+        try {
+          printSaleReceipt(saved)
+        } catch (e) {
+          // Printing can be blocked by browser settings; keep sale saved and show message.
+          setCheckoutSuccess('Sale saved successfully (printing blocked).')
+        }
+      }
       setCart([])
       setSelectedCustomer(null)
       setNotes('')
@@ -384,15 +451,18 @@ export function NewSaleScreen() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [cart, notes, paymentMethod, selectedCustomer, subtotal, totalInputStr])
+  }, [canOpenConfirm, cart, notes, paymentMethod, printAfterSave, selectedCustomer, subtotal, totalInputStr])
 
   return (
     <AppShell
       title="New sale"
       subtitle="Fast, precise checkout."
       quickActionLabel={isSubmitting ? 'Saving…' : 'Validate sale'}
-      quickActionDisabled={cart.length === 0 || isSubmitting}
-      onQuickAction={() => void handleValidate()}
+      quickActionDisabled={cart.length === 0 || isSubmitting || Boolean(creditCheckoutPreview?.overLimit)}
+      onQuickAction={() => {
+        if (!canOpenConfirm()) return
+        setConfirmOpen(true)
+      }}
     >
       <div className="mb-6 flex justify-end">
         <div
@@ -490,7 +560,7 @@ export function NewSaleScreen() {
                       <button
                         key={c.id}
                         type="button"
-                        onClick={() => selectCustomer(c)}
+                        onClick={() => void selectCustomerFromList(c)}
                         className={[
                           'flex w-full flex-col gap-0.5 px-3 py-2.5 text-left text-sm transition',
                           idx === custHighlightIndex ? 'bg-white/[0.06]' : 'hover:bg-white/[0.04]',
@@ -747,6 +817,7 @@ export function NewSaleScreen() {
                     key={opt.id}
                     icon={opt.icon}
                     label={opt.label}
+                    hint={opt.hint}
                     selected={paymentMethod === opt.id}
                     onClick={() => {
                       setPaymentMethod(opt.id)
@@ -758,6 +829,64 @@ export function NewSaleScreen() {
               {paymentMethod === 'credit' && !selectedCustomer ? (
                 <div className="text-[11px] text-[color-mix(in_oklab,var(--highlight)_72%,white)]">
                   Select a customer for credit sales.
+                </div>
+              ) : null}
+              {paymentMethod === 'credit' && selectedCustomer && creditCheckoutPreview ? (
+                <div
+                  className={clsx(
+                    'mt-3 rounded-2xl border px-4 py-3',
+                    creditCheckoutPreview.overLimit
+                      ? 'border-[color-mix(in_oklab,var(--highlight)_35%,transparent)] bg-[color-mix(in_oklab,var(--highlight)_8%,transparent)]'
+                      : 'border-white/10 bg-white/[0.02]',
+                  )}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-semibold tracking-[-0.02em] text-ink/80">On-account sale</div>
+                    <Link
+                      to={`/credits/${selectedCustomer.id}`}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-[color-mix(in_oklab,var(--accent)_78%,white)] transition hover:text-[color-mix(in_oklab,var(--accent)_92%,white)]"
+                    >
+                      Credit ledger
+                      <ArrowUpRight className="h-3.5 w-3.5 opacity-70" strokeWidth={1.75} />
+                    </Link>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-ink/48">
+                    This total is added to the customer&apos;s outstanding balance when you confirm.
+                  </p>
+                  <div className="mt-3 space-y-1.5 text-[11px] text-ink/60">
+                    <div className="flex justify-between gap-3 tabular-nums">
+                      <span className="text-ink/50">Current balance</span>
+                      <span className="font-medium text-ink/85">{formatMoney(creditCheckoutPreview.currentDebt)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3 tabular-nums">
+                      <span className="text-ink/50">This sale</span>
+                      <span className="font-medium text-ink/85">{formatMoney(parsedTotal)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3 border-t border-white/10 pt-1.5 tabular-nums">
+                      <span className="text-ink/50">After sale</span>
+                      <span
+                        className={clsx(
+                          'font-semibold',
+                          creditCheckoutPreview.overLimit
+                            ? 'text-[color-mix(in_oklab,var(--highlight)_78%,white)]'
+                            : 'text-ink/90',
+                        )}
+                      >
+                        {formatMoney(creditCheckoutPreview.after)}
+                      </span>
+                    </div>
+                    {creditCheckoutPreview.limit != null && creditCheckoutPreview.limit > 0 ? (
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <span className="text-ink/50">Credit limit</span>
+                        <span className="font-medium text-ink/85">{formatMoney(creditCheckoutPreview.limit)}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                  {creditCheckoutPreview.overLimit ? (
+                    <p className="mt-2 text-[11px] text-[color-mix(in_oklab,var(--highlight)_75%,white)]">
+                      Reduce the total or choose another payment method — the server will reject this credit sale.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -776,8 +905,11 @@ export function NewSaleScreen() {
               <Button
                 type="button"
                 className="h-11 w-full"
-                disabled={cart.length === 0 || isSubmitting}
-                onClick={() => void handleValidate()}
+                disabled={cart.length === 0 || isSubmitting || Boolean(creditCheckoutPreview?.overLimit)}
+                onClick={() => {
+                  if (!canOpenConfirm()) return
+                  setConfirmOpen(true)
+                }}
               >
                 {isSubmitting ? (
                   <>
@@ -804,6 +936,30 @@ export function NewSaleScreen() {
           </div>
         </section>
       </div>
+
+      {confirmOpen ? (
+        <ConfirmSaleModal
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            setConfirmOpen(false)
+            void handleValidate()
+          }}
+          printAfterSave={printAfterSave}
+          onTogglePrintAfterSave={setPrintAfterSave}
+          customerName={selectedCustomer ? selectedCustomer.name : 'Walk-in'}
+          paymentMethod={paymentMethod}
+          subtotal={subtotal}
+          discount={effectiveDiscount}
+          total={parsedTotal}
+          notes={notes}
+          lines={cart.map((l) => ({
+            productName: l.productName,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            lineTotal: Math.round(l.unitPrice * l.quantity * 100) / 100,
+          }))}
+        />
+      ) : null}
     </AppShell>
   )
 }
@@ -860,5 +1016,161 @@ function ChoiceChip({
         {hint ? <span className="mt-0.5 block text-[10px] text-ink/45">{hint}</span> : null}
       </span>
     </button>
+  )
+}
+
+function ConfirmSaleModal({
+  onClose,
+  onConfirm,
+  printAfterSave,
+  onTogglePrintAfterSave,
+  customerName,
+  paymentMethod,
+  subtotal,
+  discount,
+  total,
+  notes,
+  lines,
+}: {
+  onClose: () => void
+  onConfirm: () => void
+  printAfterSave: boolean
+  onTogglePrintAfterSave: (next: boolean) => void
+  customerName: string
+  paymentMethod: PaymentMethod
+  subtotal: number
+  discount: number
+  total: number
+  notes: string
+  lines: { productName: string; quantity: number; unitPrice: number; lineTotal: number }[]
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/72 backdrop-blur-md"
+        aria-label="Dismiss"
+        onClick={onClose}
+      />
+      <div className="relative z-[1] w-full max-w-lg overflow-hidden rounded-3xl border border-white/12 bg-[color-mix(in_oklab,var(--bg-1)_96%,white)] shadow-[0_56px_140px_-56px_rgba(0,0,0,0.9)]">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_50%_at_50%_0%,rgba(255,255,255,0.07),transparent)]" />
+
+        <div className="relative border-b border-white/10 px-6 py-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-ink/50">
+                Confirm
+              </div>
+              <h3 className="mt-3 text-lg font-semibold tracking-[-0.03em] text-ink/92">Validate sale</h3>
+              <p className="mt-1 text-xs leading-relaxed text-ink/55">
+                Review totals and payment method. Printing will be added here later.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-ink/60 transition hover:bg-white/[0.07] hover:text-ink"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          </div>
+        </div>
+
+        <div className="relative max-h-[min(70vh,520px)] overflow-y-auto px-6 py-5">
+          <div className="grid gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm">
+            <div className="flex justify-between gap-3 text-ink/65">
+              <span>Customer</span>
+              <span className="max-w-[60%] truncate font-medium text-ink/88">{customerName}</span>
+            </div>
+            <div className="flex justify-between gap-3 text-ink/65">
+              <span>Payment</span>
+              <span className="font-medium text-ink/88">
+                {paymentMethod === 'credit'
+                  ? 'Credit (on account)'
+                  : paymentMethod === 'moncash'
+                    ? 'MonCash'
+                    : paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1)}
+              </span>
+            </div>
+            {paymentMethod === 'credit' ? (
+              <p className="text-[11px] leading-relaxed text-ink/48">
+                The total is added to this customer&apos;s outstanding credit balance.
+              </p>
+            ) : null}
+            <div className="my-1 border-t border-white/10" />
+            <div className="flex justify-between gap-3 text-ink/65">
+              <span>Subtotal</span>
+              <span className="font-medium tabular-nums text-ink/88">{formatMoney(subtotal)}</span>
+            </div>
+            <div className="flex justify-between gap-3 text-ink/65">
+              <span>Discount</span>
+              <span className="font-medium tabular-nums text-ink/88">{formatMoney(discount)}</span>
+            </div>
+            <div className="flex justify-between gap-3 font-medium text-ink/88">
+              <span>Total</span>
+              <span className="tabular-nums text-[color-mix(in_oklab,var(--accent)_82%,white)]">{formatMoney(total)}</span>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+            <div className="text-xs font-medium text-ink/70">Items</div>
+            <div className="mt-3 space-y-0 divide-y divide-white/[0.06]">
+              {lines.map((ln, idx) => (
+                <div key={`${ln.productName}-${idx}`} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium tracking-[-0.02em] text-ink/88">{ln.productName}</div>
+                    <div className="mt-1 text-xs text-ink/48">
+                      {ln.quantity} × {formatMoney(ln.unitPrice)}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-sm font-semibold tabular-nums text-ink/90">{formatMoney(ln.lineTotal)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {notes.trim() ? (
+            <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
+              <div className="text-xs font-medium text-ink/70">Note</div>
+              <div className="mt-1 text-sm text-ink/65">{notes.trim()}</div>
+            </div>
+          ) : null}
+
+          <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              <span className="text-sm font-medium tracking-[-0.02em] text-ink/80">Print receipt after save</span>
+              <input
+                type="checkbox"
+                checked={printAfterSave}
+                onChange={(e) => onTogglePrintAfterSave(e.target.checked)}
+                className="h-4 w-4 accent-[var(--accent)]"
+              />
+            </label>
+            <div className="mt-1 text-xs text-ink/48">
+              Uses the browser print dialog (80mm receipt). You can disable if the printer is offline.
+            </div>
+          </div>
+        </div>
+
+        <div className="relative flex flex-col gap-2 border-t border-white/10 bg-white/[0.02] px-6 py-4 sm:flex-row sm:justify-end">
+          <Button type="button" variant="ghost" className="sm:min-w-[100px]" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" className="sm:min-w-[170px]" onClick={onConfirm}>
+            <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
+            Confirm & save
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }

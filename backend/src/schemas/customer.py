@@ -35,6 +35,7 @@ class CustomerResponse(CustomerBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    debt_balance: Decimal = Field(default=Decimal("0"), decimal_places=2)
 
 
 class CustomerPurchaseHistoryItem(BaseModel):

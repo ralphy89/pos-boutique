@@ -4,16 +4,82 @@ import {
   Barcode,
   Boxes,
   CircleAlert,
+  CreditCard,
   ReceiptText,
   Sparkles,
   Users,
   Wallet,
 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { getLowStockSummary, type LowStockRow } from '../api/products'
+import { getSalesToday } from '../api/sales'
 import { AppShell } from '../components/layout/AppShell'
+import { moneyFromApi } from '../types/product'
+
+function formatHtg(value: number) {
+  return `HTG ${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+}
 
 export function DashboardScreen() {
   const navigate = useNavigate()
+  const [todayLoading, setTodayLoading] = useState(true)
+  const [todayError, setTodayError] = useState<string | null>(null)
+  const [grossToday, setGrossToday] = useState<number>(0)
+  const [txnToday, setTxnToday] = useState<number>(0)
+
+  const [lowStockLoading, setLowStockLoading] = useState(true)
+  const [lowStockError, setLowStockError] = useState<string | null>(null)
+  const [lowStockCount, setLowStockCount] = useState(0)
+  const [lowStockItems, setLowStockItems] = useState<LowStockRow[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    setTodayLoading(true)
+    setTodayError(null)
+    ;(async () => {
+      try {
+        const s = await getSalesToday()
+        if (cancelled) return
+        setGrossToday(moneyFromApi(s.gross_total))
+        setTxnToday(s.transaction_count)
+      } catch (e) {
+        if (cancelled) return
+        setTodayError(e instanceof Error ? e.message : 'Could not load today’s sales.')
+        setGrossToday(0)
+        setTxnToday(0)
+      } finally {
+        if (!cancelled) setTodayLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setLowStockLoading(true)
+    setLowStockError(null)
+    ;(async () => {
+      try {
+        const s = await getLowStockSummary()
+        if (cancelled) return
+        setLowStockCount(s.count)
+        setLowStockItems(s.items)
+      } catch (e) {
+        if (cancelled) return
+        setLowStockError(e instanceof Error ? e.message : 'Could not load low-stock products.')
+        setLowStockCount(0)
+        setLowStockItems([])
+      } finally {
+        if (!cancelled) setLowStockLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <AppShell
@@ -54,14 +120,24 @@ export function DashboardScreen() {
             <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3">
               <Kpi
                 title="Today’s sales"
-                value="HTG 0"
-                meta="Gross sales"
+                value={todayLoading ? '—' : formatHtg(grossToday)}
+                meta={todayError ?? 'Gross sales'}
                 icon={<ReceiptText className="h-4 w-4" />}
               />
               {/* Cash register module will be implemented later */}
               {/* <Kpi title="Cash received" value="HTG 0" meta="Cash + mobile money" icon={<Wallet className="h-4 w-4" />} /> */}
-              <Kpi title="Transactions" value="0" meta="Validated today" icon={<Activity className="h-4 w-4" />} />
-              <Kpi title="Low stock products" value="0" meta="Needs attention" icon={<Boxes className="h-4 w-4" />} />
+              <Kpi
+                title="Transactions"
+                value={todayLoading ? '—' : String(txnToday)}
+                meta={todayError ? '—' : 'Validated today'}
+                icon={<Activity className="h-4 w-4" />}
+              />
+              <Kpi
+                title="Low stock products"
+                value={lowStockLoading ? '—' : String(lowStockCount)}
+                meta={lowStockError ?? 'Active catalog · at or below minimum'}
+                icon={<Boxes className="h-4 w-4" />}
+              />
               {/* Credit module will be implemented later */}
               {/* <Kpi title="Active debtors" value="0" meta="Customers owing" icon={<Users className="h-4 w-4" />} /> */}
             </div>
@@ -95,13 +171,55 @@ export function DashboardScreen() {
                 label="Cash register"
                 hint="Session & reconciliation"
               />
+              <QuickAction
+                to="/credits"
+                icon={<CreditCard className="h-4 w-4" strokeWidth={1.75} />}
+                label="Credits"
+                hint="Debt & repayments"
+              />
               {/* Reports module will be implemented later */}
               {/* <QuickAction icon={<TrendingUp className="h-4 w-4" />} label="Reports" hint="Insights" /> */}
             </div>
           </Card>
 
           <Card title="Low stock alerts" subtitle="Prevent stockouts before they happen">
-            <EmptyList icon={<CircleAlert className="h-4 w-4" />} text="No low-stock items right now." />
+            {lowStockLoading ? (
+              <EmptyList icon={<CircleAlert className="h-4 w-4" />} text="Loading stock signals…" />
+            ) : lowStockError ? (
+              <EmptyList icon={<CircleAlert className="h-4 w-4" />} text={lowStockError} />
+            ) : lowStockCount === 0 ? (
+              <EmptyList icon={<CircleAlert className="h-4 w-4" />} text="No low-stock items right now." />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {lowStockItems.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3"
+                  >
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.03] text-amber-200/90">
+                      <CircleAlert className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium tracking-[-0.02em] text-ink/90">{p.name}</div>
+                      <div className="mt-0.5 text-xs text-ink/50">
+                        {p.stock} in stock · minimum {p.min_stock}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {lowStockCount > lowStockItems.length ? (
+                  <div className="px-1 text-xs text-ink/45">
+                    +{lowStockCount - lowStockItems.length} more — open the catalog to review all.
+                  </div>
+                ) : null}
+                <Link
+                  to="/products"
+                  className="mt-1 inline-flex text-xs font-medium text-ink/55 underline-offset-4 hover:text-ink/75 hover:underline"
+                >
+                  Open products
+                </Link>
+              </div>
+            )}
           </Card>
         </section>
       </div>

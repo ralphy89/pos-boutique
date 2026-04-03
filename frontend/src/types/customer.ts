@@ -63,6 +63,8 @@ export type CustomerResponse = {
   address: string
   note: string
   credit_limit: string | number | null
+  /** Present on list/detail from current API; older servers may omit (treat as 0). */
+  debt_balance?: string | number
   status: CustomerStatus
   created_at: string
   updated_at: string

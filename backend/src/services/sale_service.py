@@ -7,12 +7,12 @@ from typing import Final, Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.models.cash_register_session import CashRegisterSession
 from src.models.credit_transaction import CustomerCreditTransaction
 from src.models.customer import Customer
 from src.models.product import Product
 from src.models.sale import Sale, SaleItem
 from src.models.stock_movement import StockMovement
+from src.services.cash_register_service import get_open_session
 
 Money = Decimal
 MONEY_QUANT: Final[Decimal] = Decimal("0.01")
@@ -242,15 +242,6 @@ def _assert_credit_limit(customer: Customer, additional_debt: Money) -> None:
         raise CreditLimitExceededError(_money(Decimal(limit)), projected)
 
 
-def _get_open_cash_session(db: Session) -> CashRegisterSession | None:
-    return db.scalars(
-        select(CashRegisterSession)
-        .where(CashRegisterSession.status == "open")
-        .order_by(CashRegisterSession.opened_at.desc())
-        .limit(1)
-    ).first()
-
-
 def _build_receipt_summary(
     sale_id: int,
     payment_method: str,
@@ -316,7 +307,7 @@ def create_sale(db: Session, data: SaleCreateInput) -> SaleCreationResult:
 
         _validate_stock_again_before_persist(products, quantities)
 
-        cash_session = _get_open_cash_session(db)
+        cash_session = get_open_session(db)
 
         notes_clean = (data.notes or "").strip()
         if len(notes_clean) > 4000:

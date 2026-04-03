@@ -2,6 +2,19 @@ import { API_ENDPOINTS } from '../config/endpoints'
 import type { ProductCreatePayload, ProductResponse } from '../types/product'
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
 
+/** Matches backend `LowStockSummary`. */
+export type LowStockRow = {
+  id: number
+  name: string
+  stock: number
+  min_stock: number
+}
+
+export type LowStockSummary = {
+  count: number
+  items: LowStockRow[]
+}
+
 export type ListProductsParams = {
   q?: string
   /** Exact category match; omit for all. */
@@ -25,6 +38,10 @@ export function buildProductsListUrl(params: ListProductsParams = {}): string {
 
 export async function listProducts(params: ListProductsParams = {}): Promise<ProductResponse[]> {
   return apiGet<ProductResponse[]>(buildProductsListUrl(params))
+}
+
+export async function getLowStockSummary(): Promise<LowStockSummary> {
+  return apiGet<LowStockSummary>(API_ENDPOINTS.products.lowStockSummary)
 }
 
 export async function createProduct(payload: ProductCreatePayload): Promise<ProductResponse> {
