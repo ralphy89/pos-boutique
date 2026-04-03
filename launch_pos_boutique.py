@@ -136,6 +136,7 @@ def clone_or_update_pos_boutique_in_program_files(
 
     git = shutil.which("git")
     if not git:
+
         print("Git is required for clone. Install Git for Windows.", file=sys.stderr)
         raise SystemExit(3)
 
@@ -147,7 +148,8 @@ def clone_or_update_pos_boutique_in_program_files(
     print(f"Cloning {url} → {root} …")
     cmd = [git, "clone"] + (["--depth", "1"] if shallow else []) + [url, str(root)]
     subprocess.run(cmd, check=True, timeout=1800)
-
+    print(f"Clone finished, waiting for 20 seconds to ensure the install is ready...")
+    time.sleep(20)
     if not _valid_pos_install(root):
         print("Clone finished but scripts/start-local.ps1 is missing.", file=sys.stderr)
         raise SystemExit(5)
