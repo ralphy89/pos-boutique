@@ -12,7 +12,7 @@ Web POS and light back-office for small retail: products, sales, customers, cash
 
 ## Quick start (development)
 
-**Windows — tout en une fois :** à la racine du dépôt, double-cliquez `start-local.bat` (ou dans PowerShell : `.\scripts\start-local.ps1`). Le script crée `backend/.venv`, installe pip et npm si besoin, copie les `.env` depuis les exemples, puis ouvre deux fenêtres (API port 8000 + Vite port 5173). Si **Python** ou **Node.js** est absent, le script tente une installation via **`winget`** (Windows 10/11) — une fenêtre UAC peut s’afficher. Sinon, installez-les à la main puis relancez. Options : `-InstallOnly`, `-Lan` (réseau local), `-SkipRuntimeInstall` (ne pas appeler winget), `-ApiPort` / `-UiPort` (ports non standards, ex. `-ApiPort 8843 -UiPort 9321`). Si vous changez le port de l’UI, ajoutez `http://localhost:<UiPort>` dans `CORS_ORIGINS` (`backend/.env`).
+**Windows — tout en une fois :** à la racine du dépôt, double-cliquez `start-local.bat` (ou dans PowerShell : `.\scripts\start-local.ps1`). Le script crée `backend/.venv`, installe pip et npm si besoin, copie les `.env` depuis les exemples, puis ouvre deux fenêtres (API port 8000 + Vite port 5173). Si **Python** ou **Node.js** est absent, le script tente une installation via **`winget`** (Windows 10/11) — une fenêtre UAC peut s’afficher. Sinon, installez-les à la main puis relancez. Options : `-InstallOnly`, `-Lan`, `-SkipRuntimeInstall`, `-ApiPort` / `-UiPort`, **`-Background`** (pas de fenêtres ; journaux dans `logs/`, arrêt avec `stop-local.bat` ou `.\scripts\stop-local.ps1`). Si vous changez le port de l’UI, ajoutez `http://localhost:<UiPort>` dans `CORS_ORIGINS` (`backend/.env`).
 
 ### Backend
 

@@ -18,6 +18,10 @@
 .PARAMETER UiPort
   Port for the Vite dev server (default 5173).
 
+.PARAMETER Background
+  Run API and UI without console windows. Logs: logs/api.*.log and logs/ui.*.log ; PIDs: logs/api.pid, logs/ui.pid.
+  Stop with: .\scripts\stop-local.ps1 (or stop-local.bat).
+
 .EXAMPLE
   .\scripts\start-local.ps1
 .EXAMPLE
@@ -26,11 +30,14 @@
   .\scripts\start-local.ps1 -Lan
 .EXAMPLE
   .\scripts\start-local.ps1 -ApiPort 8843 -UiPort 9321
+.EXAMPLE
+  .\scripts\start-local.ps1 -Background
 #>
 param(
   [switch]$InstallOnly,
   [switch]$Lan,
   [switch]$SkipRuntimeInstall,
+  [switch]$Background,
   [ValidateRange(1, 65535)]
   [int]$ApiPort = 8000,
   [ValidateRange(1, 65535)]
@@ -341,10 +348,58 @@ Write-Host ('UI: open http://localhost:$UiPort (API base: ' + `$env:VITE_API_BAS
 & '$npmLaunch' run dev$viteTail
 "@
 
-Write-Host "Starting API on port $ApiPort and UI on port $UiPort (two windows)..." -ForegroundColor Green
 if ($ApiPort -ne 8000 -or $UiPort -ne 5173) {
   Write-Host "Custom ports: ensure backend/.env CORS_ORIGINS includes http://localhost:$UiPort (and your LAN URL if using -Lan)." -ForegroundColor Yellow
 }
+
+if ($Background) {
+  $LogDir = Join-Path $RepoRoot 'logs'
+  New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+  $apiOut = Join-Path $LogDir 'api.stdout.log'
+  $apiErr = Join-Path $LogDir 'api.stderr.log'
+  $uiOut = Join-Path $LogDir 'ui.stdout.log'
+  $uiErr = Join-Path $LogDir 'ui.stderr.log'
+  $pyVenv = Join-Path $Backend '.venv\Scripts\python.exe'
+  $uiRunner = Join-Path $LogDir 'run-ui-background.ps1'
+
+  $uiScriptLines = @(
+    "`$env:VITE_API_BASE_URL = '$viteApiBase'"
+    "Set-Location -LiteralPath '$Frontend'"
+    "& '$npmLaunch' run dev$viteTail"
+  )
+  Set-Content -LiteralPath $uiRunner -Value $uiScriptLines -Encoding UTF8
+
+  Write-Host "Starting API on port $ApiPort and UI on port $UiPort in background (no windows)..." -ForegroundColor Green
+  Write-Host "Logs: $apiOut , $apiErr | $uiOut , $uiErr" -ForegroundColor DarkGray
+  Write-Host "Stop: .\scripts\stop-local.ps1 -ApiPort $ApiPort -UiPort $UiPort" -ForegroundColor Cyan
+
+  $uvicornArgs = @(
+    '-m', 'uvicorn', 'src.server:app', '--reload',
+    "--host=$uvicornHost", "--port=$ApiPort"
+  )
+  $pApi = Start-Process -FilePath $pyVenv -ArgumentList $uvicornArgs `
+    -WorkingDirectory $Backend -WindowStyle Hidden -PassThru `
+    -RedirectStandardOutput $apiOut -RedirectStandardError $apiErr
+  $pApi.Id | Set-Content -LiteralPath (Join-Path $LogDir 'api.pid') -Encoding ASCII
+
+  Start-Sleep -Milliseconds 500
+
+  $pUi = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $uiRunner
+  ) -WorkingDirectory $Frontend -WindowStyle Hidden -PassThru `
+    -RedirectStandardOutput $uiOut -RedirectStandardError $uiErr
+  $pUi.Id | Set-Content -LiteralPath (Join-Path $LogDir 'ui.pid') -Encoding ASCII
+
+  Write-Host ""
+  Write-Host "API: http://${uvicornHost}:$ApiPort  |  UI: http://localhost:$UiPort" -ForegroundColor Green
+  Write-Host "Done (background). Use stop-local when finished." -ForegroundColor Cyan
+  if ($Lan) {
+    Write-Host "Lan mode: add UI origin to CORS_ORIGINS; other PCs need VITE_API_BASE_URL=http://<this-pc-ip>:$ApiPort" -ForegroundColor Yellow
+  }
+  exit 0
+}
+
+Write-Host "Starting API on port $ApiPort and UI on port $UiPort (two windows)..." -ForegroundColor Green
 Start-Process powershell -ArgumentList '-NoExit', '-NoProfile', '-Command', $backendCmd
 Start-Sleep -Milliseconds 400
 Start-Process powershell -ArgumentList '-NoExit', '-NoProfile', '-Command', $frontendCmd

@@ -39,6 +39,11 @@ Run:
 uvicorn src.server:app --reload --port 8000
 ```
 
+On first database creation, a default **admin** user is inserted if that email is not already present:
+
+- Email: `admin@ralphydumera.com`
+- Password: see `src/db/seed.py` (change it after first login in production).
+
 ### Auth endpoints
 
 - `POST /auth/register` `{ email, password, full_name? }`
