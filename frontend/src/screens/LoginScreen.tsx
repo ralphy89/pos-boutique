@@ -214,7 +214,7 @@ export function LoginScreen() {
                   ) : null}
 
                   <div className="mt-1 text-xs text-ink/50">
-                    Support: <span className="text-ink/65">support@posboutique.ht</span>
+                    Support: <span className="text-ink/65">mytechzone89@gmail.com</span>
                     <span className="mx-2 text-ink/30">•</span>
                     <span className="text-ink/55">Secure session</span>
                   </div>
